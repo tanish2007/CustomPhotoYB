@@ -3,229 +3,153 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Photo Selection - AI Automatically Picks Your Best Photos</title>
+    <title>Photo Selection - Find Your Child's Best Photos</title>
     <link rel="stylesheet" href="/static/css/style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        .hero {
+            text-align: center;
+            padding: 60px 20px;
+        }
+        .hero h1 {
+            font-size: 2.5rem;
+            margin-bottom: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .hero p {
+            font-size: 1.2rem;
+            color: #666;
+            max-width: 600px;
+            margin: 0 auto 40px;
+        }
+        .workflow-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 30px;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .workflow-card {
+            background: white;
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            text-align: center;
+            transition: transform 0.3s, box-shadow 0.3s;
+            cursor: pointer;
+        }
+        .workflow-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+        }
+        .workflow-card .icon {
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+        .workflow-card h3 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+        .workflow-card p {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+        .workflow-card .tag {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .workflow-card.recommended {
+            border: 2px solid #667eea;
+        }
+        .workflow-card.recommended .tag {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .workflow-card:not(.recommended) .tag {
+            background: #f0f0f0;
+            color: #666;
+        }
+        .features {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 40px;
+            margin-top: 60px;
+            padding: 40px 20px;
+            background: #f8f9fa;
+        }
+        .feature {
+            text-align: center;
+            max-width: 200px;
+        }
+        .feature .icon {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+        .feature h4 {
+            margin-bottom: 5px;
+        }
+        .feature p {
+            font-size: 13px;
+            color: #666;
+        }
+    </style>
 </head>
 <body>
     <div class="app-container">
-        <!-- Header -->
-        <header class="header">
-            <h1>Photo Album Selector</h1>
-            <p>AI automatically decides which photos to keep based on quality, diversity, and uniqueness</p>
-        </header>
+        <!-- Hero Section -->
+        <div class="hero">
+            <h1>Smart Photo Selection</h1>
+            <p>AI-powered tool to find and select the best photos from your collection. Perfect for school events, parties, and family gatherings.</p>
+        </div>
 
-        <!-- Upload Section -->
-        <section id="upload-section" class="section">
-            <div class="upload-card">
-                <div class="upload-area" id="drop-zone">
-                    <div class="upload-icon">photos</div>
-                    <h2>Drop photos here or click to browse</h2>
-                    <p>Supports JPG, PNG, HEIC, WebP</p>
-                    <input type="file" id="file-input" multiple accept=".jpg,.jpeg,.png,.heic,.heif,.webp" hidden>
-                    <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
-                        Select Photos
-                    </button>
-                </div>
-
-                <!-- Settings -->
-                <div class="settings-panel">
-                    <h3>Selection Settings</h3>
-                    <p class="settings-description">The AI will automatically decide how many photos to keep. You just control how strict it should be.</p>
-
-                    <div class="settings-grid">
-                        <div class="setting-item quality-mode-setting">
-                            <label>Quality Mode</label>
-                            <div class="quality-buttons">
-                                <button class="quality-btn" data-mode="lenient" onclick="setQualityMode('lenient')">
-                                    <span class="quality-icon">photo_library</span>
-                                    <span class="quality-label">Keep More</span>
-                                    <span class="quality-desc">Lower standards, more photos</span>
-                                </button>
-                                <button class="quality-btn active" data-mode="balanced" onclick="setQualityMode('balanced')">
-                                    <span class="quality-icon">auto_awesome</span>
-                                    <span class="quality-label">Balanced</span>
-                                    <span class="quality-desc">Recommended setting</span>
-                                </button>
-                                <button class="quality-btn" data-mode="strict" onclick="setQualityMode('strict')">
-                                    <span class="quality-icon">workspace_premium</span>
-                                    <span class="quality-label">Best Only</span>
-                                    <span class="quality-desc">Highest quality only</span>
-                                </button>
-                            </div>
-                        </div>
-
-                        <div class="setting-item">
-                            <label for="similarity">Duplicate Detection</label>
-                            <input type="range" id="similarity" min="0.80" max="0.98" step="0.02" value="0.92">
-                            <div class="slider-labels">
-                                <span>Keep similar</span>
-                                <span id="similarity-value">92%</span>
-                                <span>Remove similar</span>
-                            </div>
-                            <span class="setting-hint">How different photos must be to both be kept</span>
-                        </div>
-                    </div>
-
-                    <!-- How it works -->
-                    <div class="how-it-works">
-                        <h4>How the AI Decides:</h4>
-                        <div class="criteria-list">
-                            <div class="criteria-item">
-                                <span class="criteria-icon">face</span>
-                                <div>
-                                    <strong>Face Quality (35%)</strong>
-                                    <p>Clear faces, eyes open, good expressions</p>
-                                </div>
-                            </div>
-                            <div class="criteria-item">
-                                <span class="criteria-icon">photo_camera</span>
-                                <div>
-                                    <strong>Photo Quality (25%)</strong>
-                                    <p>Sharp, well-lit, good composition</p>
-                                </div>
-                            </div>
-                            <div class="criteria-item">
-                                <span class="criteria-icon">sentiment_very_satisfied</span>
-                                <div>
-                                    <strong>Emotional Value (20%)</strong>
-                                    <p>Expressions, interactions, special moments</p>
-                                </div>
-                            </div>
-                            <div class="criteria-item">
-                                <span class="criteria-icon">fingerprint</span>
-                                <div>
-                                    <strong>Uniqueness (20%)</strong>
-                                    <p>Different from other selected photos</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- File Preview -->
-                <div id="file-preview" class="file-preview hidden">
-                    <h3>Selected Files: <span id="file-count">0</span></h3>
-                    <div id="preview-grid" class="preview-grid"></div>
-                    <button class="btn btn-success" id="process-btn" onclick="startProcessing()">
-                        Let AI Select Best Photos
-                    </button>
-                </div>
-            </div>
-        </section>
-
-        <!-- Processing Section -->
-        <section id="processing-section" class="section hidden">
-            <div class="processing-card">
-                <div class="processing-animation">
-                    <div class="spinner"></div>
-                </div>
-                <h2 id="processing-message">Processing your photos...</h2>
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progress-fill"></div>
-                </div>
-                <p class="progress-text"><span id="progress-percent">0</span>%</p>
-
-                <div class="processing-steps">
-                    <div class="step" id="step-1">
-                        <span class="step-icon">brain</span>
-                        <span>AI Analysis</span>
-                    </div>
-                    <div class="step" id="step-2">
-                        <span class="step-icon">calendar</span>
-                        <span>Date Organization</span>
-                    </div>
-                    <div class="step" id="step-3">
-                        <span class="step-icon">group</span>
-                        <span>Grouping Similar</span>
-                    </div>
-                    <div class="step" id="step-4">
-                        <span class="step-icon">star</span>
-                        <span>Quality Scoring</span>
-                    </div>
-                    <div class="step" id="step-5">
-                        <span class="step-icon">check</span>
-                        <span>Final Selection</span>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Results Section -->
-        <section id="results-section" class="section hidden">
-            <div class="results-header">
-                <h2>AI Selection Results</h2>
-                <div class="results-actions">
-                    <button class="btn btn-primary" onclick="downloadSelected()">
-                        Download Selected Photos
-                    </button>
-                    <button class="btn btn-secondary" onclick="resetApp()">
-                        Start Over
-                    </button>
-                </div>
+        <!-- Workflow Options -->
+        <div class="workflow-cards">
+            <div class="workflow-card recommended" onclick="window.location.href='/step1'">
+                <div class="icon">&#128100;</div>
+                <h3>Find My Child's Photos</h3>
+                <p>Upload 2-3 reference photos of your child, then upload all event photos. AI will find and select the best photos of your child.</p>
+                <span class="tag">Recommended</span>
             </div>
 
-            <!-- Summary Stats -->
-            <div class="stats-grid" id="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-value" id="stat-total">0</div>
-                    <div class="stat-label">Total Analyzed</div>
-                </div>
-                <div class="stat-card highlight">
-                    <div class="stat-value" id="stat-selected">0</div>
-                    <div class="stat-label">AI Selected</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="stat-rejected">0</div>
-                    <div class="stat-label">Filtered Out</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="stat-rate">0%</div>
-                    <div class="stat-label">Selection Rate</div>
-                </div>
+            <div class="workflow-card" onclick="window.location.href='/step2'">
+                <div class="icon">&#128247;</div>
+                <h3>Select Best Photos</h3>
+                <p>Upload all photos and let AI select the best ones based on quality, diversity, and uniqueness. No face filtering.</p>
+                <span class="tag">Quick Mode</span>
             </div>
+        </div>
 
-            <!-- Rejection Breakdown -->
-            <div class="rejection-breakdown" id="rejection-breakdown">
-                <h3>Why Photos Were Filtered Out:</h3>
-                <div class="rejection-bars" id="rejection-bars"></div>
+        <!-- Features -->
+        <div class="features">
+            <div class="feature">
+                <div class="icon">&#129504;</div>
+                <h4>AI-Powered</h4>
+                <p>Uses CLIP and InsightFace for smart selection</p>
             </div>
-
-            <!-- Tab Navigation -->
-            <div class="tabs">
-                <button class="tab active" data-tab="selected" onclick="switchTab('selected')">
-                    Selected Photos
-                </button>
-                <button class="tab" data-tab="rejected" onclick="switchTab('rejected')">
-                    Filtered Out
-                </button>
+            <div class="feature">
+                <div class="icon">&#128247;</div>
+                <h4>Quality Scoring</h4>
+                <p>Analyzes faces, sharpness, and composition</p>
             </div>
-
-            <!-- Selected Photos Grid -->
-            <div id="selected-tab" class="tab-content active">
-                <div class="photo-grid" id="selected-grid"></div>
+            <div class="feature">
+                <div class="icon">&#128100;</div>
+                <h4>Face Recognition</h4>
+                <p>Finds your child in hundreds of photos</p>
             </div>
-
-            <!-- Rejected Photos Grid -->
-            <div id="rejected-tab" class="tab-content">
-                <div class="photo-grid" id="rejected-grid"></div>
-            </div>
-        </section>
-
-        <!-- Photo Modal -->
-        <div id="photo-modal" class="modal hidden">
-            <div class="modal-content">
-                <span class="modal-close" onclick="closeModal()">&times;</span>
-                <img id="modal-image" src="" alt="">
-                <div class="modal-info">
-                    <h3 id="modal-filename"></h3>
-                    <div id="modal-reason" class="modal-reason"></div>
-                    <div class="score-breakdown" id="modal-scores"></div>
-                </div>
+            <div class="feature">
+                <div class="icon">&#10024;</div>
+                <h4>Smart Deduplication</h4>
+                <p>Removes similar and duplicate photos</p>
             </div>
         </div>
     </div>
-
-    <script src="/static/js/app.js"></script>
 </body>
 </html>

@@ -203,6 +203,10 @@ async function checkStatus() {
         if (data.status === 'complete') {
             clearInterval(pollInterval);
             await loadResults();
+        } else if (data.status === 'review_pending') {
+            // Face filtering complete - redirect to review page
+            clearInterval(pollInterval);
+            window.location.href = `/step3_review/${currentJobId}`;
         } else if (data.status === 'error') {
             clearInterval(pollInterval);
             alert('Processing error: ' + data.message);
@@ -223,16 +227,32 @@ function updateProgress(percent, message) {
 
 // Update Processing Steps
 function updateProcessingSteps(progress) {
-    const steps = [
-        { id: 'step-1', threshold: 20 },
-        { id: 'step-2', threshold: 40 },
-        { id: 'step-3', threshold: 50 },
-        { id: 'step-4', threshold: 60 },
-        { id: 'step-5', threshold: 80 }
-    ];
+    // Check if we're in face filtering mode (has step-0) or full processing mode
+    const hasFaceFiltering = document.getElementById('step-0') !== null;
+
+    let steps;
+    if (hasFaceFiltering) {
+        // Face filtering mode: 3 steps (step-0, step-1, step-2)
+        steps = [
+            { id: 'step-0', threshold: 10 },
+            { id: 'step-1', threshold: 70 },
+            { id: 'step-2', threshold: 90 }
+        ];
+    } else {
+        // Full processing mode: 5 steps (step-1 through step-5)
+        steps = [
+            { id: 'step-1', threshold: 20 },
+            { id: 'step-2', threshold: 40 },
+            { id: 'step-3', threshold: 50 },
+            { id: 'step-4', threshold: 60 },
+            { id: 'step-5', threshold: 80 }
+        ];
+    }
 
     steps.forEach((step, index) => {
         const el = document.getElementById(step.id);
+        if (!el) return; // Skip if element doesn't exist
+
         if (progress >= step.threshold) {
             el.classList.add('complete');
             el.classList.remove('active');
@@ -274,7 +294,17 @@ function displayResults(data) {
     document.getElementById('stat-total').textContent = totalPhotos;
     document.getElementById('stat-selected').textContent = selectedCount;
     document.getElementById('stat-rejected').textContent = rejectedCount;
-    document.getElementById('stat-rate').textContent = selectionRate;
+
+    // Handle optional elements
+    const statRate = document.getElementById('stat-rate');
+    if (statRate) statRate.textContent = selectionRate;
+
+    // Handle face filtering stats if available
+    const faceFiltering = data.summary.face_filtering;
+    const statFound = document.getElementById('stat-found');
+    if (statFound && faceFiltering) {
+        statFound.textContent = faceFiltering.after_face_filter || faceFiltering.user_confirmed || 0;
+    }
 
     // Display rejection breakdown
     displayRejectionBreakdown(data.rejection_breakdown);

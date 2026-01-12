@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 1: Upload Reference Photos - Photo Selection</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        .step-indicator {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .step {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 20px;
+            border-radius: 25px;
+            background: #f0f0f0;
+            color: #666;
+        }
+        .step.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .step.completed {
+            background: #4CAF50;
+            color: white;
+        }
+        .step-number {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+        .reference-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .reference-card {
+            position: relative;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .reference-card img {
+            width: 100%;
+            height: 150px;
+            object-fit: cover;
+        }
+        .reference-card .status {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 8px;
+            font-size: 12px;
+            text-align: center;
+        }
+        .reference-card .status.success {
+            background: rgba(76, 175, 80, 0.9);
+            color: white;
+        }
+        .reference-card .status.error {
+            background: rgba(244, 67, 54, 0.9);
+            color: white;
+        }
+        .reference-card .remove-btn {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            background: rgba(0,0,0,0.5);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            line-height: 1;
+        }
+        .info-box {
+            background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .info-box h4 {
+            margin: 0 0 10px 0;
+            color: #2e7d32;
+        }
+        .info-box ul {
+            margin: 0;
+            padding-left: 20px;
+            color: #1b5e20;
+        }
+        .info-box li {
+            margin: 5px 0;
+        }
+        .nav-buttons {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 30px;
+            gap: 20px;
+        }
+        .reference-count {
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+            text-align: center;
+            margin: 15px 0;
+        }
+        .skip-option {
+            text-align: center;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+        }
+        .skip-option a {
+            color: #666;
+            text-decoration: none;
+        }
+        .skip-option a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <h1>Find Your Child's Photos</h1>
+            <p>First, let's learn what your child looks like</p>
+        </header>
+
+        <!-- Step Indicator -->
+        <div class="step-indicator">
+            <div class="step active">
+                <span class="step-number">1</span>
+                <span>Reference Photos</span>
+            </div>
+            <div class="step">
+                <span class="step-number">2</span>
+                <span>Upload Event Photos</span>
+            </div>
+            <div class="step">
+                <span class="step-number">3</span>
+                <span>View Results</span>
+            </div>
+        </div>
+
+        <!-- Upload Section -->
+        <section class="section">
+            <div class="upload-card">
+                <div class="upload-area" id="drop-zone">
+                    <div class="upload-icon">face</div>
+                    <h2>Upload 2-3 Clear Photos of Your Child</h2>
+                    <p>The AI will learn to recognize them</p>
+                    <input type="file" id="file-input" multiple accept=".jpg,.jpeg,.png,.heic,.heif,.webp" hidden>
+                    <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
+                        Select Reference Photos
+                    </button>
+                </div>
+
+                <div class="info-box">
+                    <h4>Tips for Best Results:</h4>
+                    <ul>
+                        <li>Use photos with <strong>clear, front-facing</strong> views of your child</li>
+                        <li>Good lighting helps (avoid backlit or dark photos)</li>
+                        <li>Different expressions/angles help the AI recognize them better</li>
+                        <li>Photos should clearly show the child's face (not too far away)</li>
+                    </ul>
+                </div>
+
+                <!-- Reference Photos Preview -->
+                <div id="reference-preview">
+                    <h3>Reference Photos Loaded:</h3>
+                    <div class="reference-count" id="ref-count">0 / 3</div>
+                    <div class="reference-grid" id="reference-grid"></div>
+                </div>
+
+                <!-- Navigation Buttons -->
+                <div class="nav-buttons">
+                    <button class="btn btn-secondary" onclick="clearReferences()" id="clear-btn" disabled>
+                        Clear All
+                    </button>
+                    <button class="btn btn-success" onclick="goToStep2()" id="next-btn" disabled>
+                        Next: Upload Event Photos
+                    </button>
+                </div>
+
+                <!-- Skip Option -->
+                <div class="skip-option">
+                    <a href="/step2">Skip this step (process all photos without filtering by person)</a>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        let sessionId = '{{ session_id }}';
+        let referenceCount = 0;
+
+        // File input change handler
+        document.getElementById('file-input').addEventListener('change', function(e) {
+            uploadReferencePhotos(e.target.files);
+        });
+
+        // Drag and drop
+        const dropZone = document.getElementById('drop-zone');
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('drag-over');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('drag-over');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+            uploadReferencePhotos(e.dataTransfer.files);
+        });
+
+        async function uploadReferencePhotos(files) {
+            const formData = new FormData();
+            for (let file of files) {
+                formData.append('files', file);
+            }
+
+            try {
+                const response = await fetch('/upload_reference', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                    return;
+                }
+
+                // Update session ID
+                sessionId = data.session_id;
+
+                // Add each result to the grid
+                const grid = document.getElementById('reference-grid');
+                for (let result of data.results) {
+                    addReferenceCard(result);
+                }
+
+                // Update count
+                referenceCount = data.total_references;
+                updateUI();
+
+            } catch (error) {
+                console.error('Upload error:', error);
+                alert('Upload failed. Please try again.');
+            }
+        }
+
+        function addReferenceCard(result) {
+            const grid = document.getElementById('reference-grid');
+
+            const card = document.createElement('div');
+            card.className = 'reference-card';
+
+            const img = document.createElement('img');
+            img.src = '/reference_thumbnail/' + result.thumbnail;
+            img.alt = result.filename;
+
+            const status = document.createElement('div');
+            status.className = 'status ' + (result.success ? 'success' : 'error');
+
+            if (result.success) {
+                status.textContent = `Face detected (${(result.face_used.confidence * 100).toFixed(0)}% conf)`;
+            } else {
+                status.textContent = result.error || 'No face detected';
+            }
+
+            card.appendChild(img);
+            card.appendChild(status);
+            grid.appendChild(card);
+        }
+
+        function updateUI() {
+            document.getElementById('ref-count').textContent = `${referenceCount} / 3`;
+            document.getElementById('clear-btn').disabled = referenceCount === 0;
+            document.getElementById('next-btn').disabled = referenceCount === 0;
+
+            // Change next button style when ready
+            const nextBtn = document.getElementById('next-btn');
+            if (referenceCount >= 1) {
+                nextBtn.classList.add('pulse');
+            } else {
+                nextBtn.classList.remove('pulse');
+            }
+        }
+
+        async function clearReferences() {
+            if (!confirm('Clear all reference photos?')) return;
+
+            try {
+                await fetch('/clear_references', { method: 'POST' });
+
+                // Clear grid
+                document.getElementById('reference-grid').innerHTML = '';
+                referenceCount = 0;
+                updateUI();
+
+            } catch (error) {
+                console.error('Clear error:', error);
+            }
+        }
+
+        function goToStep2() {
+            if (referenceCount === 0) {
+                alert('Please upload at least 1 reference photo');
+                return;
+            }
+            window.location.href = '/step2';
+        }
+
+        // Check for existing references on page load
+        async function checkExistingReferences() {
+            try {
+                const response = await fetch('/reference_status');
+                const data = await response.json();
+
+                if (data.reference_count > 0) {
+                    referenceCount = data.reference_count;
+                    updateUI();
+                }
+            } catch (error) {
+                console.error('Status check error:', error);
+            }
+        }
+
+        // Initialize
+        checkExistingReferences();
+    </script>
+</body>
+</html>

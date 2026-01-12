@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 4: Final Results - Photo Selection</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        .step-indicator {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+        .step {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 20px;
+            border-radius: 25px;
+            background: #f0f0f0;
+            color: #666;
+        }
+        .step.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .step.completed {
+            background: #4CAF50;
+            color: white;
+        }
+        .step-number {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        .results-header h2 {
+            margin: 0;
+        }
+        .results-actions {
+            display: flex;
+            gap: 10px;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .stat-card.highlight {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .stat-value {
+            font-size: 2rem;
+            font-weight: bold;
+        }
+        .stat-label {
+            font-size: 14px;
+            color: #666;
+        }
+        .stat-card.highlight .stat-label {
+            color: rgba(255,255,255,0.9);
+        }
+        .rejection-breakdown {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .rejection-breakdown h3 {
+            margin-top: 0;
+        }
+        .rejection-bar {
+            display: flex;
+            align-items: center;
+            margin: 10px 0;
+        }
+        .rejection-bar .label {
+            width: 200px;
+            font-size: 14px;
+        }
+        .rejection-bar .bar {
+            flex: 1;
+            height: 20px;
+            background: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .rejection-bar .fill {
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 10px;
+        }
+        .rejection-bar .count {
+            width: 50px;
+            text-align: right;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .tabs {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 10px 25px;
+            border: none;
+            background: #f0f0f0;
+            cursor: pointer;
+            border-radius: 8px 8px 0 0;
+            font-weight: 500;
+        }
+        .tab.active {
+            background: white;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+        }
+        .tab-content {
+            display: none;
+            background: white;
+            padding: 20px;
+            border-radius: 0 12px 12px 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .photo-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        .photo-card {
+            position: relative;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .photo-card:hover {
+            transform: translateY(-3px);
+        }
+        .photo-card img {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+        }
+        .photo-card .info {
+            padding: 10px;
+            background: white;
+        }
+        .photo-card .score {
+            font-weight: bold;
+            color: #667eea;
+        }
+        .photo-card .reason {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .modal.hidden {
+            display: none;
+        }
+        .modal-content {
+            background: white;
+            border-radius: 16px;
+            max-width: 90%;
+            max-height: 90%;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .modal-content img {
+            max-width: 800px;
+            max-height: 60vh;
+            object-fit: contain;
+        }
+        .modal-info {
+            padding: 20px;
+            background: #f8f9fa;
+        }
+        .modal-close {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            font-size: 30px;
+            color: white;
+            cursor: pointer;
+        }
+        .score-breakdown {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .score-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px;
+            background: #e9ecef;
+            border-radius: 8px;
+        }
+        .processing-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255,255,255,0.95);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+        .processing-overlay.hidden {
+            display: none;
+        }
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .progress-bar {
+            width: 300px;
+            height: 10px;
+            background: #f0f0f0;
+            border-radius: 5px;
+            margin: 20px 0;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <h1>Final Selection Results</h1>
+            <p>AI has selected the best photos from your confirmed selection</p>
+        </header>
+
+        <!-- Step Indicator -->
+        <div class="step-indicator">
+            <div class="step completed">
+                <span class="step-number">&#10003;</span>
+                <span>Reference Photos</span>
+            </div>
+            <div class="step completed">
+                <span class="step-number">&#10003;</span>
+                <span>Upload Event Photos</span>
+            </div>
+            <div class="step completed">
+                <span class="step-number">&#10003;</span>
+                <span>Review Matches</span>
+            </div>
+            <div class="step active">
+                <span class="step-number">4</span>
+                <span>Final Results</span>
+            </div>
+        </div>
+
+        <!-- Processing Overlay (shown while waiting for results) -->
+        <div id="processing-overlay" class="processing-overlay">
+            <div class="spinner"></div>
+            <h2 id="processing-message">Processing...</h2>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+            </div>
+            <p id="progress-percent">0%</p>
+        </div>
+
+        <!-- Results Content (hidden until complete) -->
+        <div id="results-content" class="hidden">
+            <!-- Results Header -->
+            <div class="results-header">
+                <h2>Selection Results</h2>
+                <div class="results-actions">
+                    <button class="btn btn-primary" onclick="downloadSelected()">
+                        Download Selected Photos
+                    </button>
+                    <button class="btn btn-secondary" onclick="startOver()">
+                        Start Over
+                    </button>
+                </div>
+            </div>
+
+            <!-- Stats Grid -->
+            <div class="stats-grid" id="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-confirmed">0</div>
+                    <div class="stat-label">Confirmed Photos</div>
+                </div>
+                <div class="stat-card highlight">
+                    <div class="stat-value" id="stat-selected">0</div>
+                    <div class="stat-label">Final Selection</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-rejected">0</div>
+                    <div class="stat-label">Filtered Out</div>
+                </div>
+            </div>
+
+            <!-- Rejection Breakdown -->
+            <div class="rejection-breakdown" id="rejection-breakdown">
+                <h3>Why Photos Were Filtered Out:</h3>
+                <div id="rejection-bars"></div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab active" data-tab="selected" onclick="switchTab('selected')">
+                    Selected Photos (<span id="selected-count">0</span>)
+                </button>
+                <button class="tab" data-tab="rejected" onclick="switchTab('rejected')">
+                    Filtered Out (<span id="rejected-count">0</span>)
+                </button>
+            </div>
+
+            <!-- Selected Photos -->
+            <div id="selected-tab" class="tab-content active">
+                <div class="photo-grid" id="selected-grid"></div>
+            </div>
+
+            <!-- Rejected Photos -->
+            <div id="rejected-tab" class="tab-content">
+                <div class="photo-grid" id="rejected-grid"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Photo Modal -->
+    <div id="photo-modal" class="modal hidden">
+        <span class="modal-close" onclick="closeModal()">&times;</span>
+        <div class="modal-content">
+            <img id="modal-image" src="" alt="">
+            <div class="modal-info">
+                <h3 id="modal-filename"></h3>
+                <div id="modal-reason"></div>
+                <div class="score-breakdown" id="modal-scores"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const jobId = '{{ job_id }}';
+        let results = null;
+        let pollInterval = null;
+
+        // Start polling for results
+        async function pollStatus() {
+            try {
+                const response = await fetch(`/status/${jobId}`);
+                const data = await response.json();
+
+                document.getElementById('processing-message').textContent = data.message;
+                document.getElementById('progress-fill').style.width = `${data.progress}%`;
+                document.getElementById('progress-percent').textContent = `${data.progress}%`;
+
+                if (data.status === 'complete') {
+                    clearInterval(pollInterval);
+                    loadResults();
+                } else if (data.status === 'error') {
+                    clearInterval(pollInterval);
+                    alert('Error: ' + data.message);
+                    window.location.href = '/';
+                }
+            } catch (error) {
+                console.error('Poll error:', error);
+            }
+        }
+
+        async function loadResults() {
+            try {
+                const response = await fetch(`/results/${jobId}`);
+                results = await response.json();
+
+                // Check for error response
+                if (results.error) {
+                    console.error('Server error:', results.error);
+                    alert('Error: ' + results.error);
+                    return;
+                }
+
+                // Update stats - handle missing summary gracefully
+                const summary = results.summary || {};
+                const faceFiltering = summary.face_filtering || {};
+                const confirmed = faceFiltering.user_confirmed || summary.total_processed || summary.total_photos || (results.selected?.length || 0) + (results.rejected?.length || 0);
+                document.getElementById('stat-confirmed').textContent = confirmed;
+                document.getElementById('stat-selected').textContent = results.selected?.length || 0;
+                document.getElementById('stat-rejected').textContent = results.rejected?.length || 0;
+                document.getElementById('selected-count').textContent = results.selected?.length || 0;
+                document.getElementById('rejected-count').textContent = results.rejected?.length || 0;
+
+                // Render rejection breakdown
+                renderRejectionBreakdown();
+
+                // Render photo grids
+                renderPhotoGrid('selected-grid', results.selected || [], true);
+                renderPhotoGrid('rejected-grid', results.rejected || [], false);
+
+                // Show results
+                document.getElementById('processing-overlay').classList.add('hidden');
+                document.getElementById('results-content').classList.remove('hidden');
+
+            } catch (error) {
+                console.error('Error loading results:', error);
+                alert('Failed to load results: ' + error.message);
+            }
+        }
+
+        function renderRejectionBreakdown() {
+            const container = document.getElementById('rejection-bars');
+            container.innerHTML = '';
+
+            const breakdown = results.rejection_breakdown || {};
+            const total = results.rejected.length || 1;
+
+            // Sort by count
+            const sorted = Object.entries(breakdown).sort((a, b) => b[1] - a[1]);
+
+            for (const [reason, count] of sorted) {
+                const percentage = Math.round((count / total) * 100);
+                const bar = document.createElement('div');
+                bar.className = 'rejection-bar';
+                bar.innerHTML = `
+                    <div class="label">${reason}</div>
+                    <div class="bar">
+                        <div class="fill" style="width: ${percentage}%"></div>
+                    </div>
+                    <div class="count">${count}</div>
+                `;
+                container.appendChild(bar);
+            }
+
+            if (sorted.length === 0) {
+                container.innerHTML = '<p>No photos were filtered out.</p>';
+            }
+        }
+
+        function renderPhotoGrid(gridId, photos, isSelected) {
+            const grid = document.getElementById(gridId);
+            grid.innerHTML = '';
+
+            for (const photo of photos) {
+                const card = document.createElement('div');
+                card.className = 'photo-card';
+                card.onclick = () => openModal(photo, isSelected);
+
+                const reason = isSelected
+                    ? (photo.selection_reason || 'High quality')
+                    : (photo.reason || 'Did not meet threshold');
+
+                card.innerHTML = `
+                    <img src="/thumbnail/${jobId}/${photo.thumbnail}" alt="${photo.filename}">
+                    <div class="info">
+                        <div class="score">Score: ${(photo.score * 100).toFixed(0)}%</div>
+                        <div class="reason">${reason}</div>
+                    </div>
+                `;
+                grid.appendChild(card);
+            }
+
+            if (photos.length === 0) {
+                grid.innerHTML = '<p>No photos in this category.</p>';
+            }
+        }
+
+        function switchTab(tabName) {
+            // Update tab buttons
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+
+            // Update tab content
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.getElementById(`${tabName}-tab`).classList.add('active');
+        }
+
+        function openModal(photo, isSelected) {
+            document.getElementById('modal-image').src = `/photo/${jobId}/${photo.filename}`;
+            document.getElementById('modal-filename').textContent = photo.filename;
+
+            const reasonDiv = document.getElementById('modal-reason');
+            if (isSelected) {
+                reasonDiv.innerHTML = `<strong style="color: #4CAF50">Selected:</strong> ${photo.selection_reason || 'High quality photo'}`;
+            } else {
+                reasonDiv.innerHTML = `<strong style="color: #f44336">Filtered:</strong> ${photo.reason || 'Did not meet threshold'}`;
+            }
+
+            const scoresDiv = document.getElementById('modal-scores');
+            scoresDiv.innerHTML = `
+                <div class="score-item">
+                    <span>Total Score</span>
+                    <strong>${(photo.score * 100).toFixed(0)}%</strong>
+                </div>
+                <div class="score-item">
+                    <span>Face Quality</span>
+                    <strong>${(photo.face_quality * 100).toFixed(0)}%</strong>
+                </div>
+                <div class="score-item">
+                    <span>Aesthetic</span>
+                    <strong>${(photo.aesthetic_quality * 100).toFixed(0)}%</strong>
+                </div>
+                <div class="score-item">
+                    <span>Bucket</span>
+                    <strong>${photo.bucket}</strong>
+                </div>
+            `;
+
+            document.getElementById('photo-modal').classList.remove('hidden');
+        }
+
+        function closeModal() {
+            document.getElementById('photo-modal').classList.add('hidden');
+        }
+
+        function downloadSelected() {
+            window.location.href = `/download/${jobId}`;
+        }
+
+        function startOver() {
+            if (confirm('Start over with new photos?')) {
+                fetch(`/cleanup/${jobId}`, { method: 'POST' });
+                window.location.href = '/';
+            }
+        }
+
+        // Close modal on escape
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeModal();
+        });
+
+        // Initialize
+        pollInterval = setInterval(pollStatus, 1000);
+        pollStatus();
+    </script>
+</body>
+</html>

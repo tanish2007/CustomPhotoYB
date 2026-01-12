@@ -2,8 +2,11 @@
 
 An intelligent photo selection application that uses AI to automatically select the best photos from your collection based on quality, diversity, and temporal coverage.
 
+**New:** Now with **Face Recognition** to find your child in hundreds of photos!
+
 ## Features
 
+- **Find Your Child's Photos**: Upload 2-3 reference photos and the AI will find your child in all uploaded photos using InsightFace
 - **Automatic Photo Selection**: AI-powered selection using CLIP embeddings and quality scoring
 - **Smart Clustering**: Groups similar photos using HDBSCAN with temporal gap detection
 - **Quality Scoring**: Multi-factor scoring system evaluating:
@@ -12,7 +15,7 @@ An intelligent photo selection application that uses AI to automatically select 
   - Emotional Signal (20%): Facial expressions, interactions
   - Uniqueness (20%): Diversity within clusters
 - **Temporal Segmentation**: Organizes photos by time to ensure coverage across different periods
-- **Web Interface**: Easy-to-use Flask-based web UI
+- **Web Interface**: Easy-to-use Flask-based web UI with two-stage workflow
 - **Flexible Selection Modes**:
   - Strict: 1 photo per cluster
   - Balanced: 2 photos per cluster (default)
@@ -22,13 +25,36 @@ An intelligent photo selection application that uses AI to automatically select 
 
 - **Backend**: Python, Flask
 - **AI/ML**:
+  - **InsightFace** for accurate face recognition (ArcFace embeddings)
   - CLIP (sentence-transformers) for image embeddings
   - HDBSCAN for density-based clustering
-  - OpenCV for face detection and image processing
+  - OpenCV for image processing
 - **Frontend**: HTML, CSS, JavaScript
 - **Image Processing**: Pillow, pillow-heif (HEIC support)
 
 ## Architecture
+
+### Two-Stage Workflow (Recommended)
+
+```
+Step 1: Upload Reference Photos (2-3 photos of your child)
+    ↓
+InsightFace extracts face embeddings
+    ↓
+Step 2: Upload All Event Photos (1000+ photos)
+    ↓
+InsightFace scans all photos to find your child
+    ↓
+Filtered Photos (e.g., 100-200 with your child)
+    ↓
+CLIP Embeddings + HDBSCAN Clustering
+    ↓
+Quality Scoring (face, aesthetic, emotional, uniqueness)
+    ↓
+Final Selection (best photos of your child)
+```
+
+### Quick Mode (No Face Filtering)
 
 ```
 Photo Upload
@@ -117,16 +143,18 @@ CustomYB/
 │   ├── auto_selector.py           # Photo selection logic
 │   ├── clustering.py              # HDBSCAN clustering + temporal splitting
 │   ├── embeddings.py              # CLIP embedding generation
+│   ├── face_matcher.py            # InsightFace face recognition
 │   ├── scoring.py                 # Quality scoring system
 │   └── temporal.py                # Temporal segmentation
 ├── static/
 │   ├── css/
 │   │   └── style.css              # Web UI styles
 │   └── js/
-│       └── upload.js              # Client-side upload logic
+│       └── app.js                 # Client-side JavaScript
 ├── templates/
-│   ├── index.html                 # Main upload page
-│   └── results.html               # Results display page
+│   ├── index.html                 # Landing page with workflow options
+│   ├── step1_reference.html       # Reference photo upload page
+│   └── step2_upload.html          # Event photos upload + results
 ├── requirements.txt               # Python dependencies
 └── README.md                      # This file
 ```
@@ -157,13 +185,22 @@ The system selects the best photos from each cluster while:
 
 ## API Endpoints
 
-- `GET /` - Main upload interface
-- `POST /upload` - Upload photos for processing
-- `GET /status/<session_id>` - Check processing status
-- `GET /results/<session_id>` - Get selection results
-- `GET /photo/<session_id>/<filename>` - Retrieve full-size photo
-- `GET /thumbnail/<session_id>/<filename>` - Retrieve thumbnail
-- `POST /cleanup/<session_id>` - Clean up session data
+### Two-Stage Workflow
+- `GET /` - Landing page with workflow options
+- `GET /step1` - Reference photo upload page
+- `GET /step2` - Event photos upload page
+- `POST /upload_reference` - Upload reference photos of target person
+- `GET /reference_status` - Check reference photo status
+- `POST /clear_references` - Clear reference photos
+
+### Photo Processing
+- `POST /upload` - Upload event photos for processing
+- `GET /status/<job_id>` - Check processing status
+- `GET /results/<job_id>` - Get selection results
+- `GET /photo/<job_id>/<filename>` - Retrieve full-size photo
+- `GET /thumbnail/<job_id>/<filename>` - Retrieve thumbnail
+- `GET /download/<job_id>` - Download selected photos as ZIP
+- `POST /cleanup/<job_id>` - Clean up job data
 
 ## Contributing
 
@@ -175,9 +212,10 @@ This project is licensed under the MIT License.
 
 ## Acknowledgments
 
-- CLIP model by OpenAI
-- HDBSCAN algorithm by Leland McInnes
-- OpenCV for computer vision capabilities
+- **InsightFace** for state-of-the-art face recognition
+- **CLIP** model by OpenAI
+- **HDBSCAN** algorithm by Leland McInnes
+- **OpenCV** for computer vision capabilities
 
 ## Contact
 
