@@ -3,207 +3,569 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Step 1: Upload Reference Photos - Photo Selection</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <title>Step 1: Upload Reference Photos - Smart Photo Selection</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        .step-indicator {
-            display: flex;
-            justify-content: center;
-            gap: 20px;
-            margin-bottom: 30px;
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
-        .step {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 10px 20px;
-            border-radius: 25px;
-            background: #f0f0f0;
-            color: #666;
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #f5f7fa;
+            min-height: 100vh;
+            color: #333;
         }
-        .step.active {
+
+        /* Header */
+        .header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 30px 20px;
+            text-align: center;
             color: white;
         }
-        .step.completed {
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .header h1 .highlight {
+            color: #ffd700;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        /* Main Container */
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 30px 20px;
+        }
+
+        /* Step Indicator */
+        .steps {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            gap: 15px;
+            margin-bottom: 40px;
+            flex-wrap: wrap;
+        }
+
+        .step {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            min-width: 80px;
+        }
+
+        .step-circle {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #e0e0e0;
+            color: #999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+
+        .step.active .step-circle {
+            background: #667eea;
+            color: white;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .step.completed .step-circle {
             background: #4CAF50;
             color: white;
         }
-        .step-number {
-            width: 30px;
-            height: 30px;
-            border-radius: 50%;
-            background: rgba(255,255,255,0.3);
+
+        .step-label {
+            font-size: 12px;
+            color: #666;
+            text-align: center;
+            max-width: 80px;
+        }
+
+        .step.active .step-label {
+            color: #667eea;
+            font-weight: 500;
+        }
+
+        .step-connector {
+            width: 40px;
+            height: 2px;
+            background: #e0e0e0;
+            margin-top: 20px;
+        }
+
+        /* Card */
+        .card {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 2px 20px rgba(0,0,0,0.08);
+            padding: 40px;
+            margin-bottom: 20px;
+        }
+
+        .card-icon {
+            width: 60px;
+            height: 60px;
+            margin: 0 auto 20px;
+            background: #f0f4ff;
+            border-radius: 16px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-weight: bold;
         }
+
+        .card-icon svg {
+            width: 30px;
+            height: 30px;
+            color: #667eea;
+        }
+
+        .card h2 {
+            text-align: center;
+            font-size: 22px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .card > p {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        /* Upload Area */
+        .upload-area {
+            border: 2px dashed #d0d7e3;
+            border-radius: 12px;
+            padding: 40px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: #fafbfc;
+        }
+
+        .upload-area:hover {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+
+        .upload-area.drag-over {
+            border-color: #667eea;
+            background: #e8edff;
+        }
+
+        .upload-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+
+        .upload-area h3 {
+            font-size: 18px;
+            font-weight: 500;
+            margin-bottom: 8px;
+            color: #333;
+        }
+
+        .upload-area p {
+            color: #888;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 12px 28px;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5a6fd6;
+            transform: translateY(-1px);
+        }
+
+        .btn-primary:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #666;
+        }
+
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+
+        .btn-success {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #43a047;
+        }
+
+        .btn-success:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        /* Reference Preview */
+        .reference-section {
+            margin-top: 30px;
+        }
+
+        .reference-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .reference-header h3 {
+            font-size: 16px;
+            font-weight: 500;
+            color: #333;
+        }
+
+        .reference-count {
+            background: #667eea;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
         .reference-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
             gap: 15px;
-            margin: 20px 0;
         }
+
         .reference-card {
             position: relative;
             border-radius: 12px;
             overflow: hidden;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            background: white;
         }
+
         .reference-card img {
             width: 100%;
-            height: 150px;
+            height: 140px;
             object-fit: cover;
         }
+
         .reference-card .status {
             position: absolute;
             bottom: 0;
             left: 0;
             right: 0;
             padding: 8px;
-            font-size: 12px;
+            font-size: 11px;
             text-align: center;
+            font-weight: 500;
         }
+
         .reference-card .status.success {
-            background: rgba(76, 175, 80, 0.9);
+            background: rgba(76, 175, 80, 0.95);
             color: white;
         }
+
         .reference-card .status.error {
-            background: rgba(244, 67, 54, 0.9);
+            background: rgba(244, 67, 54, 0.95);
             color: white;
         }
-        .reference-card .remove-btn {
-            position: absolute;
-            top: 5px;
-            right: 5px;
-            width: 25px;
-            height: 25px;
-            border-radius: 50%;
-            background: rgba(0,0,0,0.5);
-            color: white;
-            border: none;
-            cursor: pointer;
-            font-size: 16px;
-            line-height: 1;
-        }
+
+        /* Info Box */
         .info-box {
-            background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
             border-radius: 12px;
             padding: 20px;
-            margin: 20px 0;
+            margin-top: 30px;
         }
+
         .info-box h4 {
-            margin: 0 0 10px 0;
-            color: #2e7d32;
+            color: #1565c0;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
+
         .info-box ul {
+            list-style: none;
+            padding: 0;
             margin: 0;
-            padding-left: 20px;
-            color: #1b5e20;
         }
+
         .info-box li {
-            margin: 5px 0;
+            color: #1976d2;
+            font-size: 13px;
+            padding: 6px 0;
+            padding-left: 20px;
+            position: relative;
         }
+
+        .info-box li::before {
+            content: "•";
+            position: absolute;
+            left: 0;
+            color: #1976d2;
+        }
+
+        /* Navigation */
         .nav-buttons {
             display: flex;
             justify-content: space-between;
             margin-top: 30px;
-            gap: 20px;
+            gap: 15px;
         }
-        .reference-count {
-            font-size: 24px;
-            font-weight: bold;
-            color: #667eea;
-            text-align: center;
-            margin: 15px 0;
-        }
+
+        /* Skip Option */
         .skip-option {
             text-align: center;
-            margin-top: 20px;
-            padding-top: 20px;
+            margin-top: 25px;
+            padding-top: 25px;
             border-top: 1px solid #eee;
         }
+
         .skip-option a {
-            color: #666;
+            color: #888;
             text-decoration: none;
+            font-size: 14px;
         }
+
         .skip-option a:hover {
+            color: #667eea;
             text-decoration: underline;
+        }
+
+        /* How it works */
+        .how-it-works {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 2px 20px rgba(0,0,0,0.08);
+            padding: 30px 40px;
+        }
+
+        .how-it-works h3 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .how-it-works ol {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .how-it-works li {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 10px 0;
+            color: #555;
+            font-size: 14px;
+        }
+
+        .how-it-works .step-num {
+            width: 24px;
+            height: 24px;
+            background: #f0f4ff;
+            color: #667eea;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 30px;
+            color: #999;
+        }
+
+        .empty-state p {
+            font-size: 14px;
+        }
+
+        @media (max-width: 600px) {
+            .card {
+                padding: 25px 20px;
+            }
+
+            .steps {
+                gap: 10px;
+            }
+
+            .step-connector {
+                width: 20px;
+            }
+
+            .nav-buttons {
+                flex-direction: column;
+            }
+
+            .nav-buttons .btn {
+                width: 100%;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="app-container">
-        <!-- Header -->
-        <header class="header">
-            <h1>Find Your Child's Photos</h1>
-            <p>First, let's learn what your child looks like</p>
-        </header>
+    <!-- Header -->
+    <div class="header">
+        <h1>Create a Personalized Photo Book for <span class="highlight">Your Child</span>!</h1>
+        <p>AI-powered photo selection to find the best moments</p>
+    </div>
 
+    <div class="container">
         <!-- Step Indicator -->
-        <div class="step-indicator">
+        <div class="steps">
             <div class="step active">
-                <span class="step-number">1</span>
-                <span>Reference Photos</span>
+                <div class="step-circle">1</div>
+                <div class="step-label">Upload Photos</div>
             </div>
+            <div class="step-connector"></div>
             <div class="step">
-                <span class="step-number">2</span>
-                <span>Upload Event Photos</span>
+                <div class="step-circle">2</div>
+                <div class="step-label">Identify Child</div>
             </div>
+            <div class="step-connector"></div>
             <div class="step">
-                <span class="step-number">3</span>
-                <span>View Results</span>
+                <div class="step-circle">3</div>
+                <div class="step-label">Find Photos</div>
+            </div>
+            <div class="step-connector"></div>
+            <div class="step">
+                <div class="step-circle">4</div>
+                <div class="step-label">Review</div>
+            </div>
+            <div class="step-connector"></div>
+            <div class="step">
+                <div class="step-circle">5</div>
+                <div class="step-label">Select Best</div>
+            </div>
+            <div class="step-connector"></div>
+            <div class="step">
+                <div class="step-circle">6</div>
+                <div class="step-label">Download</div>
             </div>
         </div>
 
-        <!-- Upload Section -->
-        <section class="section">
-            <div class="upload-card">
-                <div class="upload-area" id="drop-zone">
-                    <div class="upload-icon">face</div>
-                    <h2>Upload 2-3 Clear Photos of Your Child</h2>
-                    <p>The AI will learn to recognize them</p>
-                    <input type="file" id="file-input" multiple accept=".jpg,.jpeg,.png,.heic,.heif,.webp" hidden>
-                    <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
-                        Select Reference Photos
-                    </button>
-                </div>
+        <!-- Main Card -->
+        <div class="card">
+            <div class="card-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                </svg>
+            </div>
+            <h2>Upload Reference Photos of Your Child</h2>
+            <p>Upload 2-3 clear photos so the AI can learn to recognize your child</p>
 
-                <div class="info-box">
-                    <h4>Tips for Best Results:</h4>
-                    <ul>
-                        <li>Use photos with <strong>clear, front-facing</strong> views of your child</li>
-                        <li>Good lighting helps (avoid backlit or dark photos)</li>
-                        <li>Different expressions/angles help the AI recognize them better</li>
-                        <li>Photos should clearly show the child's face (not too far away)</li>
-                    </ul>
-                </div>
+            <!-- Upload Area -->
+            <div class="upload-area" id="drop-zone">
+                <div class="upload-icon">&#128247;</div>
+                <h3>Drag & Drop Photos Here</h3>
+                <p>or click to browse</p>
+                <input type="file" id="file-input" multiple accept=".jpg,.jpeg,.png,.heic,.heif,.webp" hidden>
+                <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
+                    Select Photos
+                </button>
+            </div>
 
-                <!-- Reference Photos Preview -->
-                <div id="reference-preview">
-                    <h3>Reference Photos Loaded:</h3>
-                    <div class="reference-count" id="ref-count">0 / 3</div>
-                    <div class="reference-grid" id="reference-grid"></div>
+            <!-- Reference Preview Section -->
+            <div class="reference-section" id="reference-section">
+                <div class="reference-header">
+                    <h3>Reference Photos</h3>
+                    <span class="reference-count" id="ref-count">0 loaded</span>
                 </div>
-
-                <!-- Navigation Buttons -->
-                <div class="nav-buttons">
-                    <button class="btn btn-secondary" onclick="clearReferences()" id="clear-btn" disabled>
-                        Clear All
-                    </button>
-                    <button class="btn btn-success" onclick="goToStep2()" id="next-btn" disabled>
-                        Next: Upload Event Photos
-                    </button>
-                </div>
-
-                <!-- Skip Option -->
-                <div class="skip-option">
-                    <a href="/step2">Skip this step (process all photos without filtering by person)</a>
+                <div class="reference-grid" id="reference-grid">
+                    <div class="empty-state" id="empty-state">
+                        <p>No photos uploaded yet</p>
+                    </div>
                 </div>
             </div>
-        </section>
+
+            <!-- Info Box -->
+            <div class="info-box">
+                <h4>&#128161; Tips for Best Results</h4>
+                <ul>
+                    <li>Use photos with <strong>clear, front-facing</strong> views of your child's face</li>
+                    <li>Good lighting helps - avoid backlit or very dark photos</li>
+                    <li>Different expressions/angles help the AI recognize them better</li>
+                    <li>Make sure the face is clearly visible (not too small or far away)</li>
+                </ul>
+            </div>
+
+            <!-- Navigation -->
+            <div class="nav-buttons">
+                <button class="btn btn-secondary" onclick="clearReferences()" id="clear-btn" disabled>
+                    Clear All
+                </button>
+                <button class="btn btn-success" onclick="goToStep2()" id="next-btn" disabled>
+                    Next: Upload Event Photos &rarr;
+                </button>
+            </div>
+
+            <!-- Skip Option -->
+            <div class="skip-option">
+                <a href="/step2">Skip this step (process all photos without face filtering)</a>
+            </div>
+        </div>
+
+        <!-- How it works -->
+        <div class="how-it-works">
+            <h3>How it works:</h3>
+            <ol>
+                <li><span class="step-num">1</span> Upload 2-3 clear photos of your child's face</li>
+                <li><span class="step-num">2</span> The AI learns to recognize your child</li>
+                <li><span class="step-num">3</span> Upload all your event/school photos</li>
+                <li><span class="step-num">4</span> AI finds photos containing your child</li>
+                <li><span class="step-num">5</span> Review and select the best ones</li>
+            </ol>
+        </div>
     </div>
 
     <script>
@@ -255,6 +617,9 @@
                 // Update session ID
                 sessionId = data.session_id;
 
+                // Hide empty state
+                document.getElementById('empty-state').style.display = 'none';
+
                 // Add each result to the grid
                 const grid = document.getElementById('reference-grid');
                 for (let result of data.results) {
@@ -285,7 +650,7 @@
             status.className = 'status ' + (result.success ? 'success' : 'error');
 
             if (result.success) {
-                status.textContent = `Face detected (${(result.face_used.confidence * 100).toFixed(0)}% conf)`;
+                status.textContent = `Face detected (${(result.face_used.confidence * 100).toFixed(0)}%)`;
             } else {
                 status.textContent = result.error || 'No face detected';
             }
@@ -296,17 +661,9 @@
         }
 
         function updateUI() {
-            document.getElementById('ref-count').textContent = `${referenceCount} / 3`;
+            document.getElementById('ref-count').textContent = `${referenceCount} loaded`;
             document.getElementById('clear-btn').disabled = referenceCount === 0;
             document.getElementById('next-btn').disabled = referenceCount === 0;
-
-            // Change next button style when ready
-            const nextBtn = document.getElementById('next-btn');
-            if (referenceCount >= 1) {
-                nextBtn.classList.add('pulse');
-            } else {
-                nextBtn.classList.remove('pulse');
-            }
         }
 
         async function clearReferences() {
@@ -315,8 +672,8 @@
             try {
                 await fetch('/clear_references', { method: 'POST' });
 
-                // Clear grid
-                document.getElementById('reference-grid').innerHTML = '';
+                // Clear grid and show empty state
+                document.getElementById('reference-grid').innerHTML = '<div class="empty-state" id="empty-state"><p>No photos uploaded yet</p></div>';
                 referenceCount = 0;
                 updateUI();
 
@@ -341,6 +698,7 @@
 
                 if (data.reference_count > 0) {
                     referenceCount = data.reference_count;
+                    document.getElementById('empty-state').style.display = 'none';
                     updateUI();
                 }
             } catch (error) {

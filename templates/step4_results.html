@@ -3,330 +3,743 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Step 4: Final Results - Photo Selection</title>
-    <link rel="stylesheet" href="/static/css/style.css">
+    <title>Step 4: Final Results - Smart Photo Selection</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #f5f7fa;
+            min-height: 100vh;
+            color: #1a1a2e;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px 20px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            font-size: 16px;
+            opacity: 0.9;
+        }
+
+        /* Step Indicator */
         .step-indicator {
             display: flex;
             justify-content: center;
-            gap: 20px;
-            margin-bottom: 30px;
+            align-items: center;
+            padding: 30px 20px;
+            background: white;
+            border-bottom: 1px solid #e5e7eb;
             flex-wrap: wrap;
+            gap: 8px;
         }
+
         .step {
             display: flex;
             align-items: center;
-            gap: 10px;
-            padding: 10px 20px;
-            border-radius: 25px;
-            background: #f0f0f0;
-            color: #666;
+            gap: 8px;
         }
-        .step.active {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-        }
-        .step.completed {
-            background: #4CAF50;
-            color: white;
-        }
-        .step-number {
-            width: 30px;
-            height: 30px;
+
+        .step-circle {
+            width: 36px;
+            height: 36px;
             border-radius: 50%;
-            background: rgba(255,255,255,0.3);
             display: flex;
             align-items: center;
             justify-content: center;
-            font-weight: bold;
+            font-weight: 600;
+            font-size: 14px;
+            transition: all 0.3s ease;
         }
-        .results-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-            gap: 15px;
-        }
-        .results-header h2 {
-            margin: 0;
-        }
-        .results-actions {
-            display: flex;
-            gap: 10px;
-        }
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
-            margin-bottom: 30px;
-        }
-        .stat-card {
-            background: white;
-            border-radius: 12px;
-            padding: 20px;
-            text-align: center;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        .stat-card.highlight {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+
+        .step-circle.completed {
+            background: #10b981;
             color: white;
         }
-        .stat-value {
-            font-size: 2rem;
-            font-weight: bold;
-        }
-        .stat-label {
-            font-size: 14px;
-            color: #666;
-        }
-        .stat-card.highlight .stat-label {
-            color: rgba(255,255,255,0.9);
-        }
-        .rejection-breakdown {
-            background: white;
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 30px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        .rejection-breakdown h3 {
-            margin-top: 0;
-        }
-        .rejection-bar {
-            display: flex;
-            align-items: center;
-            margin: 10px 0;
-        }
-        .rejection-bar .label {
-            width: 200px;
-            font-size: 14px;
-        }
-        .rejection-bar .bar {
-            flex: 1;
-            height: 20px;
-            background: #f0f0f0;
-            border-radius: 10px;
-            overflow: hidden;
-        }
-        .rejection-bar .fill {
-            height: 100%;
+
+        .step-circle.active {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 10px;
+            color: white;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
         }
-        .rejection-bar .count {
-            width: 50px;
-            text-align: right;
-            font-weight: bold;
-            margin-left: 10px;
+
+        .step-circle.pending {
+            background: #e5e7eb;
+            color: #9ca3af;
         }
-        .tabs {
-            display: flex;
-            gap: 5px;
-            margin-bottom: 20px;
-        }
-        .tab {
-            padding: 10px 25px;
-            border: none;
-            background: #f0f0f0;
-            cursor: pointer;
-            border-radius: 8px 8px 0 0;
+
+        .step-label {
+            font-size: 13px;
             font-weight: 500;
+            color: #6b7280;
         }
-        .tab.active {
-            background: white;
-            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
-        }
-        .tab-content {
-            display: none;
-            background: white;
-            padding: 20px;
-            border-radius: 0 12px 12px 12px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        .tab-content.active {
-            display: block;
-        }
-        .photo-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 15px;
-        }
-        .photo-card {
-            position: relative;
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            cursor: pointer;
-            transition: transform 0.2s;
-        }
-        .photo-card:hover {
-            transform: translateY(-3px);
-        }
-        .photo-card img {
-            width: 100%;
-            height: 200px;
-            object-fit: cover;
-        }
-        .photo-card .info {
-            padding: 10px;
-            background: white;
-        }
-        .photo-card .score {
-            font-weight: bold;
+
+        .step.active .step-label {
             color: #667eea;
+            font-weight: 600;
         }
-        .photo-card .reason {
-            font-size: 12px;
-            color: #666;
-            margin-top: 5px;
+
+        .step.completed .step-label {
+            color: #10b981;
         }
-        .modal {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.8);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
+
+        .step-connector {
+            width: 40px;
+            height: 2px;
+            background: #e5e7eb;
+            margin: 0 4px;
         }
-        .modal.hidden {
-            display: none;
+
+        .step-connector.completed {
+            background: #10b981;
         }
-        .modal-content {
-            background: white;
-            border-radius: 16px;
-            max-width: 90%;
-            max-height: 90%;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
+
+        /* Main Container */
+        .main-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 30px 20px;
         }
-        .modal-content img {
-            max-width: 800px;
-            max-height: 60vh;
-            object-fit: contain;
-        }
-        .modal-info {
-            padding: 20px;
-            background: #f8f9fa;
-        }
-        .modal-close {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            font-size: 30px;
-            color: white;
-            cursor: pointer;
-        }
-        .score-breakdown {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 10px;
-            margin-top: 15px;
-        }
-        .score-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 8px;
-            background: #e9ecef;
-            border-radius: 8px;
-        }
+
+        /* Processing Overlay */
         .processing-overlay {
             position: fixed;
             top: 0;
             left: 0;
             right: 0;
             bottom: 0;
-            background: rgba(255,255,255,0.95);
+            background: rgba(255, 255, 255, 0.98);
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             z-index: 2000;
         }
+
         .processing-overlay.hidden {
             display: none;
         }
+
+        .processing-card {
+            background: white;
+            border-radius: 20px;
+            padding: 50px 60px;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
+        }
+
         .spinner {
-            width: 50px;
-            height: 50px;
+            width: 60px;
+            height: 60px;
             border: 4px solid #f3f3f3;
             border-top: 4px solid #667eea;
             border-radius: 50%;
             animation: spin 1s linear infinite;
+            margin: 0 auto 25px;
         }
+
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+
+        .processing-card h2 {
+            font-size: 22px;
+            font-weight: 600;
+            color: #1a1a2e;
+            margin-bottom: 20px;
+        }
+
         .progress-bar {
             width: 300px;
-            height: 10px;
-            background: #f0f0f0;
-            border-radius: 5px;
-            margin: 20px 0;
+            height: 8px;
+            background: #e5e7eb;
+            border-radius: 4px;
             overflow: hidden;
+            margin-bottom: 12px;
         }
+
         .progress-fill {
             height: 100%;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            transition: width 0.3s;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        .progress-percent {
+            font-size: 14px;
+            color: #6b7280;
+        }
+
+        /* Results Content */
+        .results-content {
+            display: none;
+        }
+
+        .results-content.visible {
+            display: block;
+        }
+
+        /* Results Header */
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .results-header h2 {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1a1a2e;
+        }
+
+        .results-actions {
+            display: flex;
+            gap: 12px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: white;
+            color: #6b7280;
+            border: 2px solid #e5e7eb;
+        }
+
+        .btn-secondary:hover {
+            background: #f9fafb;
+            border-color: #d1d5db;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: 16px;
+            padding: 25px;
+            text-align: center;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+            transition: transform 0.2s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-3px);
+        }
+
+        .stat-card.highlight {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .stat-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 15px;
+            font-size: 24px;
+        }
+
+        .stat-card:not(.highlight) .stat-icon {
+            background: #f3f4f6;
+        }
+
+        .stat-card.highlight .stat-icon {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 14px;
+            color: #6b7280;
+        }
+
+        .stat-card.highlight .stat-label {
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        /* Breakdown Card */
+        .breakdown-card {
+            background: white;
+            border-radius: 16px;
+            padding: 25px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+        }
+
+        .breakdown-card h3 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #1a1a2e;
+            margin-bottom: 20px;
+        }
+
+        .rejection-bar {
+            display: flex;
+            align-items: center;
+            margin: 12px 0;
+        }
+
+        .rejection-bar .label {
+            width: 200px;
+            font-size: 14px;
+            color: #4b5563;
+            flex-shrink: 0;
+        }
+
+        .rejection-bar .bar {
+            flex: 1;
+            height: 24px;
+            background: #f3f4f6;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .rejection-bar .fill {
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px;
+            transition: width 0.5s ease;
+        }
+
+        .rejection-bar .count {
+            width: 50px;
+            text-align: right;
+            font-weight: 600;
+            color: #1a1a2e;
+            margin-left: 15px;
+        }
+
+        /* Tabs */
+        .tabs-container {
+            background: white;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+        }
+
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 18px 25px;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: 500;
+            color: #6b7280;
+            transition: all 0.2s ease;
+            position: relative;
+        }
+
+        .tab:hover {
+            background: #f9fafb;
+        }
+
+        .tab.active {
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        .tab.active::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .tab-count {
+            background: #e5e7eb;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 13px;
+            margin-left: 8px;
+        }
+
+        .tab.active .tab-count {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .tab-content {
+            display: none;
+            padding: 25px;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Photo Grid */
+        .photo-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 20px;
+        }
+
+        .photo-card {
+            position: relative;
+            border-radius: 14px;
+            overflow: hidden;
+            background: white;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .photo-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+        }
+
+        .photo-card img {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+        }
+
+        .photo-info {
+            padding: 15px;
+        }
+
+        .photo-score {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .score-badge {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .photo-card.rejected .score-badge {
+            background: #9ca3af;
+        }
+
+        .photo-reason {
+            font-size: 13px;
+            color: #6b7280;
+            line-height: 1.4;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 50px 20px;
+            color: #6b7280;
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+
+        /* Modal */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 3000;
+            padding: 20px;
+        }
+
+        .modal.hidden {
+            display: none;
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 20px;
+            right: 25px;
+            font-size: 36px;
+            color: white;
+            cursor: pointer;
+            opacity: 0.8;
+            transition: opacity 0.2s;
+            z-index: 3001;
+        }
+
+        .modal-close:hover {
+            opacity: 1;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 20px;
+            max-width: 900px;
+            max-height: 90vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .modal-image-container {
+            background: #1a1a2e;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .modal-content img {
+            max-width: 100%;
+            max-height: 55vh;
+            object-fit: contain;
+            border-radius: 8px;
+        }
+
+        .modal-info {
+            padding: 25px;
+            background: white;
+        }
+
+        .modal-filename {
+            font-size: 18px;
+            font-weight: 600;
+            color: #1a1a2e;
+            margin-bottom: 12px;
+        }
+
+        .modal-reason {
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+
+        .modal-reason.selected {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .modal-reason.rejected {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .score-breakdown {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .score-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background: #f3f4f6;
+            border-radius: 10px;
+            font-size: 14px;
+        }
+
+        .score-item span {
+            color: #6b7280;
+        }
+
+        .score-item strong {
+            color: #1a1a2e;
+        }
+
+        /* Hidden class */
+        .hidden {
+            display: none !important;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 22px;
+            }
+
+            .step-label {
+                display: none;
+            }
+
+            .step-connector {
+                width: 20px;
+            }
+
+            .results-header {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .results-actions {
+                justify-content: stretch;
+            }
+
+            .results-actions .btn {
+                flex: 1;
+                justify-content: center;
+            }
+
+            .rejection-bar .label {
+                width: 120px;
+                font-size: 12px;
+            }
+
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .photo-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 12px;
+            }
+
+            .score-breakdown {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="app-container">
-        <!-- Header -->
-        <header class="header">
-            <h1>Final Selection Results</h1>
-            <p>AI has selected the best photos from your confirmed selection</p>
-        </header>
+    <!-- Header -->
+    <header class="header">
+        <h1>Final Selection Results</h1>
+        <p>AI has curated the best photos from your collection</p>
+    </header>
 
-        <!-- Step Indicator -->
-        <div class="step-indicator">
-            <div class="step completed">
-                <span class="step-number">&#10003;</span>
-                <span>Reference Photos</span>
-            </div>
-            <div class="step completed">
-                <span class="step-number">&#10003;</span>
-                <span>Upload Event Photos</span>
-            </div>
-            <div class="step completed">
-                <span class="step-number">&#10003;</span>
-                <span>Review Matches</span>
-            </div>
-            <div class="step active">
-                <span class="step-number">4</span>
-                <span>Final Results</span>
-            </div>
+    <!-- Step Indicator -->
+    <div class="step-indicator">
+        <div class="step completed">
+            <div class="step-circle completed">✓</div>
+            <span class="step-label">Reference</span>
         </div>
+        <div class="step-connector completed"></div>
+        <div class="step completed">
+            <div class="step-circle completed">✓</div>
+            <span class="step-label">Upload</span>
+        </div>
+        <div class="step-connector completed"></div>
+        <div class="step completed">
+            <div class="step-circle completed">✓</div>
+            <span class="step-label">Review</span>
+        </div>
+        <div class="step-connector completed"></div>
+        <div class="step active">
+            <div class="step-circle active">4</div>
+            <span class="step-label">Results</span>
+        </div>
+        <div class="step-connector"></div>
+        <div class="step">
+            <div class="step-circle pending">5</div>
+            <span class="step-label">Quality</span>
+        </div>
+        <div class="step-connector"></div>
+        <div class="step">
+            <div class="step-circle pending">6</div>
+            <span class="step-label">Download</span>
+        </div>
+    </div>
 
-        <!-- Processing Overlay (shown while waiting for results) -->
-        <div id="processing-overlay" class="processing-overlay">
+    <!-- Processing Overlay -->
+    <div id="processing-overlay" class="processing-overlay">
+        <div class="processing-card">
             <div class="spinner"></div>
-            <h2 id="processing-message">Processing...</h2>
+            <h2 id="processing-message">Analyzing photos...</h2>
             <div class="progress-bar">
                 <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
             </div>
-            <p id="progress-percent">0%</p>
+            <p class="progress-percent" id="progress-percent">0%</p>
         </div>
+    </div>
 
-        <!-- Results Content (hidden until complete) -->
-        <div id="results-content" class="hidden">
+    <!-- Results Content -->
+    <div class="main-container">
+        <div id="results-content" class="results-content">
             <!-- Results Header -->
             <div class="results-header">
                 <h2>Selection Results</h2>
                 <div class="results-actions">
                     <button class="btn btn-primary" onclick="downloadSelected()">
-                        Download Selected Photos
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="7 10 12 15 17 10"/>
+                            <line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        Download Selected
                     </button>
                     <button class="btn btn-secondary" onclick="startOver()">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                            <path d="M3 3v5h5"/>
+                        </svg>
                         Start Over
                     </button>
                 </div>
@@ -335,43 +748,50 @@
             <!-- Stats Grid -->
             <div class="stats-grid" id="stats-grid">
                 <div class="stat-card">
+                    <div class="stat-icon">📸</div>
                     <div class="stat-value" id="stat-confirmed">0</div>
                     <div class="stat-label">Confirmed Photos</div>
                 </div>
                 <div class="stat-card highlight">
+                    <div class="stat-icon">⭐</div>
                     <div class="stat-value" id="stat-selected">0</div>
                     <div class="stat-label">Final Selection</div>
                 </div>
                 <div class="stat-card">
+                    <div class="stat-icon">📋</div>
                     <div class="stat-value" id="stat-rejected">0</div>
                     <div class="stat-label">Filtered Out</div>
                 </div>
             </div>
 
             <!-- Rejection Breakdown -->
-            <div class="rejection-breakdown" id="rejection-breakdown">
-                <h3>Why Photos Were Filtered Out:</h3>
+            <div class="breakdown-card" id="rejection-breakdown">
+                <h3>Why Photos Were Filtered Out</h3>
                 <div id="rejection-bars"></div>
             </div>
 
-            <!-- Tabs -->
-            <div class="tabs">
-                <button class="tab active" data-tab="selected" onclick="switchTab('selected')">
-                    Selected Photos (<span id="selected-count">0</span>)
-                </button>
-                <button class="tab" data-tab="rejected" onclick="switchTab('rejected')">
-                    Filtered Out (<span id="rejected-count">0</span>)
-                </button>
-            </div>
+            <!-- Tabs Container -->
+            <div class="tabs-container">
+                <div class="tabs">
+                    <button class="tab active" data-tab="selected" onclick="switchTab('selected')">
+                        Selected Photos
+                        <span class="tab-count" id="selected-count">0</span>
+                    </button>
+                    <button class="tab" data-tab="rejected" onclick="switchTab('rejected')">
+                        Filtered Out
+                        <span class="tab-count" id="rejected-count">0</span>
+                    </button>
+                </div>
 
-            <!-- Selected Photos -->
-            <div id="selected-tab" class="tab-content active">
-                <div class="photo-grid" id="selected-grid"></div>
-            </div>
+                <!-- Selected Photos Tab -->
+                <div id="selected-tab" class="tab-content active">
+                    <div class="photo-grid" id="selected-grid"></div>
+                </div>
 
-            <!-- Rejected Photos -->
-            <div id="rejected-tab" class="tab-content">
-                <div class="photo-grid" id="rejected-grid"></div>
+                <!-- Rejected Photos Tab -->
+                <div id="rejected-tab" class="tab-content">
+                    <div class="photo-grid" id="rejected-grid"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -380,10 +800,12 @@
     <div id="photo-modal" class="modal hidden">
         <span class="modal-close" onclick="closeModal()">&times;</span>
         <div class="modal-content">
-            <img id="modal-image" src="" alt="">
+            <div class="modal-image-container">
+                <img id="modal-image" src="" alt="">
+            </div>
             <div class="modal-info">
-                <h3 id="modal-filename"></h3>
-                <div id="modal-reason"></div>
+                <h3 class="modal-filename" id="modal-filename"></h3>
+                <div class="modal-reason" id="modal-reason"></div>
                 <div class="score-breakdown" id="modal-scores"></div>
             </div>
         </div>
@@ -448,7 +870,7 @@
 
                 // Show results
                 document.getElementById('processing-overlay').classList.add('hidden');
-                document.getElementById('results-content').classList.remove('hidden');
+                document.getElementById('results-content').classList.add('visible');
 
             } catch (error) {
                 console.error('Error loading results:', error);
@@ -461,7 +883,7 @@
             container.innerHTML = '';
 
             const breakdown = results.rejection_breakdown || {};
-            const total = results.rejected.length || 1;
+            const total = results.rejected?.length || 1;
 
             // Sort by count
             const sorted = Object.entries(breakdown).sort((a, b) => b[1] - a[1]);
@@ -481,7 +903,7 @@
             }
 
             if (sorted.length === 0) {
-                container.innerHTML = '<p>No photos were filtered out.</p>';
+                document.getElementById('rejection-breakdown').style.display = 'none';
             }
         }
 
@@ -489,27 +911,37 @@
             const grid = document.getElementById(gridId);
             grid.innerHTML = '';
 
+            if (photos.length === 0) {
+                grid.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">${isSelected ? '📭' : '✨'}</div>
+                        <p>${isSelected ? 'No photos selected yet.' : 'All photos made it through!'}</p>
+                    </div>
+                `;
+                return;
+            }
+
             for (const photo of photos) {
                 const card = document.createElement('div');
-                card.className = 'photo-card';
+                card.className = `photo-card ${isSelected ? '' : 'rejected'}`;
                 card.onclick = () => openModal(photo, isSelected);
 
                 const reason = isSelected
                     ? (photo.selection_reason || 'High quality')
                     : (photo.reason || 'Did not meet threshold');
 
+                const scorePercent = photo.score ? (photo.score * 100).toFixed(0) : '0';
+
                 card.innerHTML = `
-                    <img src="/thumbnail/${jobId}/${photo.thumbnail}" alt="${photo.filename}">
-                    <div class="info">
-                        <div class="score">Score: ${(photo.score * 100).toFixed(0)}%</div>
-                        <div class="reason">${reason}</div>
+                    <img src="/thumbnail/${jobId}/${photo.thumbnail}" alt="${photo.filename}" loading="lazy">
+                    <div class="photo-info">
+                        <div class="photo-score">
+                            <span class="score-badge">${scorePercent}%</span>
+                        </div>
+                        <div class="photo-reason">${reason}</div>
                     </div>
                 `;
                 grid.appendChild(card);
-            }
-
-            if (photos.length === 0) {
-                grid.innerHTML = '<p>No photos in this category.</p>';
             }
         }
 
@@ -529,28 +961,34 @@
 
             const reasonDiv = document.getElementById('modal-reason');
             if (isSelected) {
-                reasonDiv.innerHTML = `<strong style="color: #4CAF50">Selected:</strong> ${photo.selection_reason || 'High quality photo'}`;
+                reasonDiv.className = 'modal-reason selected';
+                reasonDiv.innerHTML = `<strong>✓ Selected:</strong> ${photo.selection_reason || 'High quality photo'}`;
             } else {
-                reasonDiv.innerHTML = `<strong style="color: #f44336">Filtered:</strong> ${photo.reason || 'Did not meet threshold'}`;
+                reasonDiv.className = 'modal-reason rejected';
+                reasonDiv.innerHTML = `<strong>✗ Filtered:</strong> ${photo.reason || 'Did not meet threshold'}`;
             }
 
             const scoresDiv = document.getElementById('modal-scores');
+            const scorePercent = photo.score ? (photo.score * 100).toFixed(0) : '0';
+            const faceQuality = photo.face_quality ? (photo.face_quality * 100).toFixed(0) : 'N/A';
+            const aesthetic = photo.aesthetic_quality ? (photo.aesthetic_quality * 100).toFixed(0) : 'N/A';
+
             scoresDiv.innerHTML = `
                 <div class="score-item">
                     <span>Total Score</span>
-                    <strong>${(photo.score * 100).toFixed(0)}%</strong>
+                    <strong>${scorePercent}%</strong>
                 </div>
                 <div class="score-item">
                     <span>Face Quality</span>
-                    <strong>${(photo.face_quality * 100).toFixed(0)}%</strong>
+                    <strong>${faceQuality}${faceQuality !== 'N/A' ? '%' : ''}</strong>
                 </div>
                 <div class="score-item">
                     <span>Aesthetic</span>
-                    <strong>${(photo.aesthetic_quality * 100).toFixed(0)}%</strong>
+                    <strong>${aesthetic}${aesthetic !== 'N/A' ? '%' : ''}</strong>
                 </div>
                 <div class="score-item">
                     <span>Bucket</span>
-                    <strong>${photo.bucket}</strong>
+                    <strong>${photo.bucket || 'Unknown'}</strong>
                 </div>
             `;
 
@@ -566,15 +1004,21 @@
         }
 
         function startOver() {
-            if (confirm('Start over with new photos?')) {
+            if (confirm('Start over with new photos? All current progress will be lost.')) {
                 fetch(`/cleanup/${jobId}`, { method: 'POST' });
                 window.location.href = '/';
             }
         }
 
-        // Close modal on escape
+        // Close modal on escape or outside click
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') closeModal();
+        });
+
+        document.getElementById('photo-modal').addEventListener('click', (e) => {
+            if (e.target.classList.contains('modal')) {
+                closeModal();
+            }
         });
 
         // Initialize
