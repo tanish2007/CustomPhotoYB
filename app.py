@@ -220,7 +220,8 @@ def process_photos_face_filter_only(job_id, upload_dir, session_id=None):
                 'thumbnail': thumb_name,
                 'face_match_score': match['similarity'],
                 'num_faces': match['num_faces'],
-                'matched_face_idx': match.get('matched_face_idx', 0)
+                'matched_face_idx': match.get('matched_face_idx', 0),
+                'face_bboxes': match.get('face_bboxes', [])  # Cached face locations for scoring
             })
 
             # Progress update every 10 photos
@@ -428,11 +429,16 @@ def save_photos_by_month(job_id, upload_dir, selected_photos, rejected_photos, m
         return None
 
 
-def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarity_threshold, confirmed_photos):
+def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarity_threshold, confirmed_photos, face_data_cache=None):
     """
     Phase 2: Month-based category-aware photo selection.
     Selects ~40 best photos per month with category diversity.
+
+    Args:
+        face_data_cache: Dict of filename -> {'num_faces': int, 'face_bboxes': list}
+                        Cached face data from Step 2 to avoid re-detection
     """
+    face_data_cache = face_data_cache or {}
     try:
         print(f"\n{'='*60}")
         print(f"[Job {job_id}] PHASE 2: Monthly Category-Aware Selection Started")
@@ -516,12 +522,18 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
 
             dt = selector.get_photo_date(filepath)
 
+            # Get cached face data if available
+            cached_face = face_data_cache.get(filename, {})
+
             photo_info = {
                 'filename': filename,
                 'filepath': filepath,
                 'date': dt.isoformat() if dt else None,
                 'month': MONTH_NAMES.get(dt.month, "Unknown") if dt else "Unknown",
-                'timestamp': dt.timestamp() if dt else None
+                'timestamp': dt.timestamp() if dt else None,
+                # Cached face data from Step 2 (avoids re-detection)
+                'num_faces': cached_face.get('num_faces'),
+                'face_bboxes': cached_face.get('face_bboxes', [])
             }
 
             photos_by_month[photo_info['month']].append(photo_info)
@@ -1581,6 +1593,32 @@ def confirm_selection(job_id):
     similarity_threshold = job.get('similarity_threshold', 0.92)
     upload_dir = job.get('upload_dir')
 
+    # Load cached face data from review_data (to avoid re-detection in scoring)
+    face_data_cache = {}
+    if 'review_data' in job:
+        for photo in job['review_data'].get('filtered_photos', []):
+            filename = photo.get('filename')
+            if filename:
+                face_data_cache[filename] = {
+                    'num_faces': photo.get('num_faces', 0),
+                    'face_bboxes': photo.get('face_bboxes', [])
+                }
+    else:
+        # Try loading from review file
+        review_file = os.path.join(RESULTS_FOLDER, f"{job_id}_review.json")
+        if os.path.exists(review_file):
+            with open(review_file, 'r') as f:
+                review_data = json.load(f)
+            for photo in review_data.get('filtered_photos', []):
+                filename = photo.get('filename')
+                if filename:
+                    face_data_cache[filename] = {
+                        'num_faces': photo.get('num_faces', 0),
+                        'face_bboxes': photo.get('face_bboxes', [])
+                    }
+
+    print(f"[Job {job_id}] Loaded face data cache for {len(face_data_cache)} photos")
+
     # Update job status
     job['status'] = 'processing'
     job['progress'] = 0
@@ -1590,7 +1628,7 @@ def confirm_selection(job_id):
     # Start phase 2 processing
     thread = threading.Thread(
         target=process_photos_quality_selection,
-        args=(job_id, upload_dir, quality_mode, similarity_threshold, confirmed_photos)
+        args=(job_id, upload_dir, quality_mode, similarity_threshold, confirmed_photos, face_data_cache)
     )
     thread.start()
 

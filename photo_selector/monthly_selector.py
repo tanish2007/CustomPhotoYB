@@ -426,22 +426,36 @@ class MonthlyPhotoSelector:
                      all_month_embeddings: np.ndarray = None) -> List[Dict]:
         """
         Score all photos with quality heuristics.
+        OPTIMIZED: Uses cached face data from photos dict if available.
 
         Returns:
             Photos with scores added, sorted by total score
         """
         self._ensure_scorer()
 
+        cached_count = 0
         for photo in photos:
             emb = embeddings.get(photo['filename'])
+
+            # Check for cached face data (from Step 2 face filtering)
+            cached_bboxes = photo.get('face_bboxes')
+            cached_num_faces = photo.get('num_faces')
+
+            if cached_bboxes is not None and cached_num_faces is not None:
+                cached_count += 1
 
             scores = self.scorer.score_photo(
                 photo['filepath'],
                 embedding=emb,
-                cluster_embeddings=all_month_embeddings
+                cluster_embeddings=all_month_embeddings,
+                cached_face_bboxes=cached_bboxes,
+                cached_num_faces=cached_num_faces
             )
 
             photo.update(scores)
+
+        if cached_count > 0:
+            print(f"  [OPTIMIZED] Used cached face data for {cached_count}/{len(photos)} photos (skipped face detection)")
 
         return photos
 

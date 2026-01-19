@@ -346,15 +346,19 @@ class PhotoScorer:
 
     def score_photo(self, image_path: str,
                     embedding: np.ndarray = None,
-                    cluster_embeddings: np.ndarray = None) -> Dict[str, float]:
+                    cluster_embeddings: np.ndarray = None,
+                    cached_face_bboxes: list = None,
+                    cached_num_faces: int = None) -> Dict[str, float]:
         """
         Calculate complete score for a photo.
-        OPTIMIZED: Only frontal face detection (removed slow profile/body detection).
+        OPTIMIZED: Uses cached face data if available, skips slow face detection.
 
         Args:
             image_path: Path to image file
             embedding: Photo's embedding (for uniqueness)
             cluster_embeddings: All embeddings in cluster (for uniqueness)
+            cached_face_bboxes: Pre-detected face bounding boxes from Step 2
+            cached_num_faces: Pre-detected face count from Step 2
 
         Returns:
             Dictionary with individual scores and total
@@ -363,8 +367,19 @@ class PhotoScorer:
         if image is None:
             return {'total': 0.0, 'error': 'Could not load image'}
 
-        # Detect frontal faces only (profile/body detection removed for speed)
-        faces = self.detect_faces(image)
+        # Use cached face data if available (HUGE speedup - skips face detection)
+        if cached_face_bboxes is not None and cached_num_faces is not None:
+            # Convert InsightFace bbox format [x1, y1, x2, y2] to OpenCV format [x, y, w, h]
+            faces = []
+            for bbox in cached_face_bboxes:
+                if len(bbox) >= 4:
+                    x1, y1, x2, y2 = bbox[:4]
+                    faces.append([int(x1), int(y1), int(x2 - x1), int(y2 - y1)])
+            num_faces = cached_num_faces
+        else:
+            # Fallback: Detect frontal faces (slow)
+            faces = self.detect_faces(image)
+            num_faces = len(faces)
 
         # Calculate individual scores
         face_quality = self.calculate_face_quality(image, faces)
@@ -376,8 +391,6 @@ class PhotoScorer:
             uniqueness = self.calculate_uniqueness(embedding, cluster_embeddings)
         else:
             uniqueness = 0.5  # Default
-
-        num_faces = len(faces)
 
         # Weighted total
         total = (

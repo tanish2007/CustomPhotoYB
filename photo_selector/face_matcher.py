@@ -284,11 +284,15 @@ class FaceMatcher:
         best_match = similarities[0]['similarity']
         contains_target = best_match >= self.similarity_threshold
 
+        # Extract face bboxes for caching (to avoid re-detection in scoring)
+        face_bboxes = [face['bbox'] for face in faces]
+
         return {
             'contains_target': contains_target,
             'best_match_similarity': best_match,
             'all_face_similarities': similarities,
-            'num_faces': len(faces)
+            'num_faces': len(faces),
+            'face_bboxes': face_bboxes  # Cached face locations for scoring
         }
 
     def filter_photos(self,
@@ -374,7 +378,8 @@ class FaceMatcher:
                         'path': photo_path,
                         'similarity': result['best_match_similarity'],
                         'num_faces': result['num_faces'],
-                        'all_similarities': result['all_face_similarities']
+                        'all_similarities': result['all_face_similarities'],
+                        'face_bboxes': result.get('face_bboxes', [])  # Cached for scoring
                     })
                 else:
                     unmatched.append({
