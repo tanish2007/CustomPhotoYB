@@ -44,6 +44,10 @@ Thumbs.db
 
 # Application specific
 uploads/
+results/
+references/
+selected_photos/
+thumbnails/
 *.log
 *.sqlite
 

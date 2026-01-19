@@ -20,6 +20,7 @@ from pathlib import Path
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, send_from_directory, send_file, session
 from werkzeug.utils import secure_filename
+from werkzeug.exceptions import RequestEntityTooLarge
 import numpy as np
 from PIL import Image
 import threading
@@ -39,12 +40,14 @@ app.secret_key = 'photo_selector_secret_key_2024'  # For session management
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
 RESULTS_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results')
 REFERENCE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'references')
+OUTPUT_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'selected_photos')  # Auto-save location
 ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png', 'heic', 'heif', 'webp'}
 MAX_CONTENT_LENGTH = 5 * 1024 * 1024 * 1024  # 5GB max (for large photo batches)
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
 app.config['MAX_FORM_MEMORY_SIZE'] = 5 * 1024 * 1024 * 1024  # 5GB for form data
+app.config['MAX_FORM_PARTS'] = 10000  # Allow up to 10000 files in one upload
 
 # Create directories
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -56,6 +59,14 @@ processing_jobs = {}
 
 # Store face matchers for sessions (reuse to avoid reloading model)
 face_matchers = {}
+
+
+# Error handler for large uploads
+@app.errorhandler(RequestEntityTooLarge)
+def handle_large_upload(error):
+    return jsonify({
+        'error': 'Upload too large. Try uploading fewer files at once (max ~500 files per batch).'
+    }), 413
 
 
 def allowed_file(filename):
@@ -140,19 +151,33 @@ def process_photos_face_filter_only(job_id, upload_dir, session_id=None):
 
         total_photos = len(photo_files)
         print(f"[Job {job_id}] Total photos to scan: {total_photos}")
+        processing_jobs[job_id]['total_photos'] = total_photos
         processing_jobs[job_id]['message'] = f'Scanning {total_photos} photos for your child...'
 
-        # Create thumbnails directory
-        thumbs_dir = os.path.join(upload_dir, 'thumbnails')
+        # Create thumbnails directory - always in uploads/<job_id>/thumbnails
+        # This ensures thumbnails work for both browser upload and local folder mode
+        is_local_folder = processing_jobs[job_id].get('is_local_folder', False)
+        if is_local_folder:
+            thumbs_dir = os.path.join(UPLOAD_FOLDER, job_id, 'thumbnails')
+        else:
+            thumbs_dir = os.path.join(upload_dir, 'thumbnails')
         os.makedirs(thumbs_dir, exist_ok=True)
 
         # Get all photo paths
         photo_paths = [os.path.join(upload_dir, fn) for fn in photo_files]
 
+        # Progress callback to update photos_checked
+        def progress_callback(current, total, message):
+            processing_jobs[job_id]['photos_checked'] = current
+            processing_jobs[job_id]['message'] = f'Checked {current}/{total} photos...'
+            # Update progress between 30-80%
+            progress_pct = 30 + int((current / total) * 50) if total > 0 else 30
+            processing_jobs[job_id]['progress'] = progress_pct
+
         # Run face filtering
         print(f"[Job {job_id}] Starting face detection and matching...")
         processing_jobs[job_id]['progress'] = 30
-        filter_results = face_matcher.filter_photos(photo_paths)
+        filter_results = face_matcher.filter_photos(photo_paths, progress_callback=progress_callback)
 
         if 'error' in filter_results:
             print(f"[Job {job_id}] ERROR: Face matching failed - {filter_results['error']}")
@@ -239,14 +264,178 @@ def process_photos_face_filter_only(job_id, upload_dir, session_id=None):
         traceback.print_exc()
 
 
+def save_photos_by_month(job_id, upload_dir, selected_photos, rejected_photos, month_stats):
+    """
+    Automatically save both selected and not-selected photos organized by month.
+
+    Creates folder structure:
+    selected_photos/
+    └── {job_id}_{timestamp}/
+        ├── selected/
+        │   ├── Jan/
+        │   │   ├── photo1.jpg
+        │   │   └── photo2.jpg
+        │   ├── Feb/
+        │   │   └── photo3.jpg
+        │   └── ...
+        ├── not_selected/
+        │   ├── Jan/
+        │   │   └── photo4.jpg
+        │   ├── Feb/
+        │   │   └── photo5.jpg
+        │   └── ...
+        └── summary.txt
+
+    Args:
+        job_id: The job identifier
+        upload_dir: Source directory containing original photos
+        selected_photos: List of selected photo dicts with 'filename' and 'month' keys
+        rejected_photos: List of rejected photo dicts with 'filename' and 'month' keys
+        month_stats: Statistics about each month's selection
+
+    Returns:
+        Path to the output folder
+    """
+    try:
+        # Create output folder with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_base = os.path.join(OUTPUT_FOLDER, f"{job_id}_{timestamp}")
+        os.makedirs(output_base, exist_ok=True)
+
+        print(f"\n{'='*60}")
+        print(f"  AUTO-SAVING PHOTOS BY MONTH (SELECTED & NOT SELECTED)")
+        print(f"{'='*60}")
+        print(f"  Output folder: {output_base}")
+
+        # Create selected and not_selected folders
+        selected_base = os.path.join(output_base, "selected")
+        not_selected_base = os.path.join(output_base, "not_selected")
+        os.makedirs(selected_base, exist_ok=True)
+        os.makedirs(not_selected_base, exist_ok=True)
+
+        # Group selected photos by month
+        selected_by_month = {}
+        for photo in selected_photos:
+            month = photo.get('month', 'Unknown')
+            if month not in selected_by_month:
+                selected_by_month[month] = []
+            selected_by_month[month].append(photo)
+
+        # Group rejected photos by month
+        rejected_by_month = {}
+        for photo in rejected_photos:
+            month = photo.get('month', 'Unknown')
+            if month not in rejected_by_month:
+                rejected_by_month[month] = []
+            rejected_by_month[month].append(photo)
+
+        # Copy SELECTED photos to month folders
+        print(f"\n  --- SELECTED PHOTOS ---")
+        total_selected_copied = 0
+        for month, photos in selected_by_month.items():
+            month_folder = os.path.join(selected_base, month)
+            os.makedirs(month_folder, exist_ok=True)
+
+            print(f"  [selected/{month}] Saving {len(photos)} photos...")
+
+            for photo in photos:
+                src_path = os.path.join(upload_dir, photo['filename'])
+                dst_path = os.path.join(month_folder, photo['filename'])
+
+                if os.path.exists(src_path):
+                    shutil.copy2(src_path, dst_path)
+                    total_selected_copied += 1
+
+        # Copy NOT SELECTED photos to month folders
+        print(f"\n  --- NOT SELECTED PHOTOS ---")
+        total_rejected_copied = 0
+        for month, photos in rejected_by_month.items():
+            month_folder = os.path.join(not_selected_base, month)
+            os.makedirs(month_folder, exist_ok=True)
+
+            print(f"  [not_selected/{month}] Saving {len(photos)} photos...")
+
+            for photo in photos:
+                src_path = os.path.join(upload_dir, photo['filename'])
+                dst_path = os.path.join(month_folder, photo['filename'])
+
+                if os.path.exists(src_path):
+                    shutil.copy2(src_path, dst_path)
+                    total_rejected_copied += 1
+
+        # Create summary file
+        summary_path = os.path.join(output_base, "summary.txt")
+        with open(summary_path, 'w') as f:
+            f.write("=" * 60 + "\n")
+            f.write("  PHOTO SELECTION SUMMARY\n")
+            f.write("=" * 60 + "\n\n")
+            f.write(f"Job ID: {job_id}\n")
+            f.write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Total Selected: {total_selected_copied} photos\n")
+            f.write(f"Total Not Selected: {total_rejected_copied} photos\n")
+            f.write(f"Grand Total: {total_selected_copied + total_rejected_copied} photos\n\n")
+
+            f.write("-" * 40 + "\n")
+            f.write("  BREAKDOWN BY MONTH\n")
+            f.write("-" * 40 + "\n\n")
+            f.write(f"{'Month':<12} {'Selected':>10} {'Not Selected':>14} {'Total':>8}\n")
+            f.write(f"{'-'*12} {'-'*10} {'-'*14} {'-'*8}\n")
+
+            for stat in month_stats:
+                month = stat['month']
+                selected = stat['selected']
+                total = stat['total_photos']
+                not_selected = total - selected
+                f.write(f"{month:<12} {selected:>10} {not_selected:>14} {total:>8}\n")
+
+            # Selected files by month
+            f.write("\n" + "=" * 60 + "\n")
+            f.write("  SELECTED FILES BY MONTH\n")
+            f.write("=" * 60 + "\n")
+
+            for month, photos in sorted(selected_by_month.items()):
+                f.write(f"\n[{month}] - {len(photos)} selected photos:\n")
+                for photo in sorted(photos, key=lambda x: x.get('score', 0), reverse=True):
+                    score = photo.get('score', 0) * 100
+                    cluster = photo.get('cluster_id', -1)
+                    f.write(f"  + {photo['filename']} (Score: {score:.0f}%, Cluster: {cluster})\n")
+
+            # Not selected files by month
+            f.write("\n" + "=" * 60 + "\n")
+            f.write("  NOT SELECTED FILES BY MONTH\n")
+            f.write("=" * 60 + "\n")
+
+            for month, photos in sorted(rejected_by_month.items()):
+                f.write(f"\n[{month}] - {len(photos)} not selected photos:\n")
+                for photo in sorted(photos, key=lambda x: x.get('score', 0), reverse=True):
+                    score = photo.get('score', 0) * 100
+                    cluster = photo.get('cluster_id', -1)
+                    f.write(f"  - {photo['filename']} (Score: {score:.0f}%, Cluster: {cluster})\n")
+
+        print(f"\n  SUMMARY:")
+        print(f"  - Selected photos saved: {total_selected_copied}")
+        print(f"  - Not selected photos saved: {total_rejected_copied}")
+        print(f"  - Total photos saved: {total_selected_copied + total_rejected_copied}")
+        print(f"  - Summary written to: {summary_path}")
+        print(f"{'='*60}\n")
+
+        return output_base
+
+    except Exception as e:
+        print(f"[ERROR] Failed to save photos by month: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
 def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarity_threshold, confirmed_photos):
     """
-    Phase 2: Quality-based selection on confirmed photos.
-    Runs after user has reviewed and confirmed the face-filtered photos.
+    Phase 2: Month-based category-aware photo selection.
+    Selects ~40 best photos per month with category diversity.
     """
     try:
         print(f"\n{'='*60}")
-        print(f"[Job {job_id}] PHASE 2: Quality Selection Started")
+        print(f"[Job {job_id}] PHASE 2: Monthly Category-Aware Selection Started")
         print(f"{'='*60}")
         print(f"[Job {job_id}] Confirmed photos: {len(confirmed_photos)}")
         print(f"[Job {job_id}] Quality mode: {quality_mode}")
@@ -254,31 +443,34 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
 
         processing_jobs[job_id]['status'] = 'processing'
         processing_jobs[job_id]['progress'] = 5
-        processing_jobs[job_id]['message'] = 'Loading AI models for quality analysis...'
+        processing_jobs[job_id]['message'] = 'Loading AI models...'
 
-        print(f"[Job {job_id}] Loading CLIP model and pipeline components...")
-
-        # Import pipeline components
+        # Import the new monthly selector
         from photo_selector.embeddings import PhotoEmbedder
-        from photo_selector.temporal import TemporalSegmenter
-        from photo_selector.clustering import PhotoClusterer, BucketClusterManager
-        from photo_selector.scoring import PhotoScorer, ClusterScorer
-        from photo_selector.auto_selector import SmartPhotoSelector, SelectionReason
+        from photo_selector.monthly_selector import MonthlyPhotoSelector
 
-        # Step 1: Generate embeddings for confirmed photos only
-        processing_jobs[job_id]['progress'] = 20
-        processing_jobs[job_id]['message'] = 'Analyzing confirmed photos with CLIP AI...'
+        # Determine target per month based on quality mode
+        if quality_mode == 'keep_more':
+            target_per_month = 60  # More photos per month
+        elif quality_mode == 'strict':
+            target_per_month = 25  # Fewer, higher quality
+        else:  # balanced
+            target_per_month = 40  # Default
+
+        print(f"[Job {job_id}] Target per month: {target_per_month}")
+
+        # Step 1: Generate embeddings for confirmed photos
+        processing_jobs[job_id]['progress'] = 10
+        processing_jobs[job_id]['message'] = 'Analyzing photos with CLIP AI...'
 
         print(f"[Job {job_id}] Generating CLIP embeddings for {len(confirmed_photos)} photos...")
 
         embedder = PhotoEmbedder()
-
-        # Generate embeddings only for confirmed photos
         embeddings = {}
+
         for i, filename in enumerate(confirmed_photos):
             filepath = os.path.join(upload_dir, filename)
             if os.path.exists(filepath):
-                # Load image first, then get embedding
                 img = embedder.load_image(filepath)
                 if img is not None:
                     embedding = embedder.get_embedding(img)
@@ -286,165 +478,156 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
                         embeddings[filename] = embedding
                     img.close()
 
-            # Update progress
-            progress = 20 + int((i / len(confirmed_photos)) * 20)
+            # Update progress (10-30%)
+            progress = 10 + int((i / len(confirmed_photos)) * 20)
             processing_jobs[job_id]['progress'] = progress
 
-        processing_jobs[job_id]['progress'] = 40
-        processing_jobs[job_id]['message'] = 'Organizing by date...'
-
         print(f"[Job {job_id}] Embeddings generated: {len(embeddings)}")
-        print(f"[Job {job_id}] Organizing photos by date (temporal segmentation)...")
 
-        # Step 2: Temporal segmentation (only for confirmed photos)
-        segmenter = TemporalSegmenter(bucket_type="monthly")
+        # Step 2: Initialize monthly selector
+        processing_jobs[job_id]['progress'] = 35
+        processing_jobs[job_id]['message'] = 'Grouping photos by month...'
 
-        # Create a filtered folder view for confirmed photos
-        buckets = {}
+        # Note: duplicate_threshold is for CLIP embedding similarity (0.85 catches exact near-dupes)
+        # diversity_threshold ensures we don't select visually similar photos (different scenes)
+        # This is separate from face similarity_threshold (0.4-0.5 for face matching)
+        selector = MonthlyPhotoSelector(
+            target_per_month=target_per_month,
+            duplicate_threshold=0.85,    # Remove exact duplicates (same moment, slight angle change)
+            diversity_threshold=0.75     # Ensure selected photos are visually diverse
+        )
+
+        # Step 3: Group photos by month (only confirmed photos)
+        # We need to manually build the photos_by_month structure for confirmed photos
+        from collections import defaultdict
+
+        MONTH_NAMES = {
+            1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr",
+            5: "May", 6: "Jun", 7: "Jul", 8: "Aug",
+            9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"
+        }
+
+        photos_by_month = defaultdict(list)
+
         for filename in confirmed_photos:
             filepath = os.path.join(upload_dir, filename)
-            if os.path.exists(filepath):
-                photo_date = segmenter.get_photo_date(filepath)
-                if photo_date:
-                    bucket_key = segmenter.get_bucket_key(photo_date)
-                else:
-                    bucket_key = 'unknown'
-                if bucket_key not in buckets:
-                    buckets[bucket_key] = []
-                buckets[bucket_key].append(filename)
-
-        # Calculate targets
-        estimated_target = max(10, len(embeddings) // 3)
-        targets = {}
-        total_photos = sum(len(files) for files in buckets.values())
-        for bucket_key, files in buckets.items():
-            bucket_ratio = len(files) / total_photos if total_photos > 0 else 0
-            targets[bucket_key] = max(1, int(estimated_target * bucket_ratio))
-
-        processing_jobs[job_id]['progress'] = 50
-        processing_jobs[job_id]['message'] = 'Grouping similar photos...'
-
-        print(f"[Job {job_id}] Time buckets created: {len(buckets)}")
-        for bucket_key, files in buckets.items():
-            print(f"  - {bucket_key}: {len(files)} photos")
-        print(f"[Job {job_id}] Running HDBSCAN clustering...")
-
-        # Step 3: Clustering
-        clusterer = BucketClusterManager(PhotoClusterer(method="hdbscan", min_cluster_size=3, temporal_gap_hours=6.0))
-
-        # Build cluster_results structure
-        cluster_results = {}
-        for bucket_key, filenames in buckets.items():
-            if len(filenames) == 0:
+            if not os.path.exists(filepath):
                 continue
 
-            bucket_embeddings = [embeddings[fn] for fn in filenames if fn in embeddings]
-            valid_filenames = [fn for fn in filenames if fn in embeddings]
+            dt = selector.get_photo_date(filepath)
 
-            if len(valid_filenames) < 2:
-                # Single photo in bucket - assign to cluster 0
-                cluster_results[bucket_key] = {
-                    'filenames': valid_filenames,
-                    'labels': [0] * len(valid_filenames),
-                    'target': targets.get(bucket_key, 1)
-                }
-            else:
-                # Use clusterer for this bucket
-                # cluster_all_buckets expects List[Dict] with 'filename' key
-                bucket_data = {bucket_key: [{'filename': fn} for fn in valid_filenames]}
-                bucket_targets = {bucket_key: targets.get(bucket_key, 1)}
-                result = clusterer.cluster_all_buckets(bucket_data, embeddings, bucket_targets, use_adaptive=False)
-                cluster_results.update(result)
+            photo_info = {
+                'filename': filename,
+                'filepath': filepath,
+                'date': dt.isoformat() if dt else None,
+                'month': MONTH_NAMES.get(dt.month, "Unknown") if dt else "Unknown",
+                'timestamp': dt.timestamp() if dt else None
+            }
 
+            photos_by_month[photo_info['month']].append(photo_info)
+
+        # Sort months in calendar order
+        month_order = list(MONTH_NAMES.values()) + ['Unknown']
+        photos_by_month = {m: photos_by_month[m] for m in month_order if m in photos_by_month}
+
+        print(f"[Job {job_id}] Photos grouped into {len(photos_by_month)} months:")
+        for month, photos in photos_by_month.items():
+            print(f"  - {month}: {len(photos)} photos")
+
+        # Step 4: Select best photos from each month (categories detected AFTER selection for speed)
         processing_jobs[job_id]['progress'] = 60
-        processing_jobs[job_id]['message'] = 'Scoring photo quality...'
+        processing_jobs[job_id]['message'] = 'Selecting best photos per month...'
 
-        total_clusters = sum(len(set(bucket_data['labels'])) for bucket_data in cluster_results.values())
-        print(f"[Job {job_id}] Clustering complete: {total_clusters} clusters across {len(cluster_results)} buckets")
-        print(f"[Job {job_id}] Scoring photo quality (face, aesthetic, emotional, uniqueness)...")
+        def progress_callback(msg):
+            processing_jobs[job_id]['message'] = msg
 
-        # Step 4: Score photos
-        scorer = ClusterScorer(PhotoScorer())
-        all_scores = {}
+        selection_results = selector.select_all_months(photos_by_month, embeddings, progress_callback)
 
-        for bucket_key, bucket_data in cluster_results.items():
-            filenames = bucket_data['filenames']
-            labels = np.array(bucket_data['labels'])
-            bucket_embeddings = np.array([embeddings[fn] for fn in filenames if fn in embeddings])
-
-            for cluster_id in np.unique(labels):
-                cluster_mask = labels == cluster_id
-                cluster_indices = np.where(cluster_mask)[0]
-                cluster_filenames = [filenames[i] for i in cluster_indices]
-                cluster_embs = bucket_embeddings[cluster_mask]
-                cluster_paths = [os.path.join(upload_dir, fn) for fn in cluster_filenames]
-
-                scores = scorer.score_cluster(cluster_paths, cluster_embs)
-
-                for score in scores:
-                    score['bucket'] = bucket_key
-                    score['cluster'] = int(cluster_id)
-                    score['cluster_key'] = f"{bucket_key}_cluster_{cluster_id}"
-                    all_scores[score['filename']] = score
-
-        processing_jobs[job_id]['progress'] = 75
-        processing_jobs[job_id]['message'] = 'AI selecting best photos...'
-
-        print(f"[Job {job_id}] Photos scored: {len(all_scores)}")
-        print(f"[Job {job_id}] Running automatic selection (mode: {quality_mode})...")
-
-        # Step 5: Automatic selection
-        auto_selector = SmartPhotoSelector(
-            quality_mode=quality_mode,
-            similarity_threshold=similarity_threshold
-        )
-
-        selection_results = auto_selector.process_all_photos(
-            all_scores, embeddings, cluster_results
-        )
+        selected_photos = selection_results['selected']
+        month_stats = selection_results['month_stats']
+        summary = selection_results['summary']
 
         print(f"\n[Job {job_id}] Selection Results:")
-        print(f"  - Selected: {len(selection_results['selected'])} photos")
-        print(f"  - Rejected: {len(selection_results['rejected'])} photos")
+        print(f"  - Total photos: {summary['total_photos']}")
+        print(f"  - Selected: {summary['total_selected']}")
+        print(f"  - Selection rate: {summary['selection_rate']*100:.1f}%")
 
-        # Add review stats to summary
-        selection_results['summary']['face_filtering'] = {
-            'total_photos': processing_jobs[job_id].get('total_uploaded', len(confirmed_photos)),
-            'after_face_filter': len(confirmed_photos),
-            'user_confirmed': len(confirmed_photos)
-        }
-        # Add total_processed for template compatibility
-        selection_results['summary']['total_processed'] = len(confirmed_photos)
+        # Step 5: Detect categories ONLY for selected photos (much faster than all photos)
+        processing_jobs[job_id]['progress'] = 75
+        processing_jobs[job_id]['message'] = 'Detecting categories for selected photos...'
 
-        processing_jobs[job_id]['progress'] = 90
-        processing_jobs[job_id]['message'] = 'Preparing results...'
+        print(f"[Job {job_id}] Detecting categories for {len(selected_photos)} selected photos...")
+        selected_paths = [p['filepath'] for p in selected_photos]
+        if selected_paths:
+            selector._ensure_category_detector()
+            categories = selector.category_detector.detect_categories_batch(selected_paths)
+            for photo in selected_photos:
+                # categories dict is keyed by filename, not filepath
+                cat, conf = categories.get(photo['filename'], ('unknown', 0.0))
+                photo['category'] = cat
+                photo['category_confidence'] = conf
+
+        # Update month_stats with category breakdown from selected photos only
+        for stat in month_stats:
+            month_name = stat['month']
+            month_selected = [p for p in selected_photos if p.get('month') == month_name]
+            cat_breakdown = {}
+            for p in month_selected:
+                cat = p.get('category', 'unknown')
+                cat_breakdown[cat] = cat_breakdown.get(cat, 0) + 1
+            stat['categories'] = cat_breakdown
+
+        # Step 6: Build rejected list (photos not selected)
+        selected_filenames = {p['filename'] for p in selected_photos}
+        rejected_photos = []
+
+        for month, photos in photos_by_month.items():
+            for photo in photos:
+                if photo['filename'] not in selected_filenames:
+                    photo['rejection_reason'] = 'Not selected for month quota'
+                    rejected_photos.append(photo)
+
+        processing_jobs[job_id]['progress'] = 85
+        processing_jobs[job_id]['message'] = 'Creating thumbnails...'
 
         # Create thumbnails directory
         thumbs_dir = os.path.join(upload_dir, 'thumbnails')
         os.makedirs(thumbs_dir, exist_ok=True)
 
-        # Prepare results
+        # Build final results structure
         results = {
             'selected': [],
             'rejected': [],
-            'summary': selection_results['summary'],
-            'rejection_breakdown': selection_results['rejection_breakdown'],
-            'bucket_stats': selection_results['bucket_stats']
+            'summary': {
+                'total_photos': summary['total_photos'],
+                'selected_count': summary['total_selected'],
+                'rejected_count': len(rejected_photos),
+                'selection_rate': summary['selection_rate'],
+                'face_filtering': {
+                    'total_photos': processing_jobs[job_id].get('total_uploaded', len(confirmed_photos)),
+                    'after_face_filter': len(confirmed_photos),
+                    'user_confirmed': len(confirmed_photos)
+                },
+                'total_processed': len(confirmed_photos)
+            },
+            'month_stats': month_stats,
+            'rejection_breakdown': {}
         }
 
+        # Count rejection reasons
+        rejection_counts = defaultdict(int)
+
         # Process selected photos
-        for photo in selection_results['selected']:
+        for photo in selected_photos:
             filename = photo['filename']
             thumb_name = f"thumb_{filename.rsplit('.', 1)[0]}.jpg"
             thumb_path = os.path.join(thumbs_dir, thumb_name)
 
             create_thumbnail(os.path.join(upload_dir, filename), thumb_path)
 
-            reason = photo.get('selection_reason', None)
-            if isinstance(reason, SelectionReason):
-                reason_text = reason.value
-            else:
-                reason_text = str(reason) if reason else 'High quality photo'
+            # Get embedding for this photo (convert to list for JSON serialization)
+            photo_embedding = embeddings.get(filename)
+            embedding_list = photo_embedding.tolist() if photo_embedding is not None else None
 
             results['selected'].append({
                 'filename': filename,
@@ -454,25 +637,32 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
                 'aesthetic_quality': float(photo.get('aesthetic_quality', 0)),
                 'emotional_signal': float(photo.get('emotional_signal', 0)),
                 'uniqueness': float(photo.get('uniqueness', 0)),
-                'bucket': photo.get('bucket', 'unknown'),
+                'bucket': photo.get('month', 'unknown'),
+                'month': photo.get('month', 'Unknown'),
+                'category': photo.get('category', 'unknown'),
                 'num_faces': int(photo.get('num_faces', 0)),
-                'selection_reason': reason_text,
-                'selection_detail': photo.get('selection_detail', reason_text)
+                'cluster_id': photo.get('cluster_id', -1),
+                'max_similarity': float(photo.get('max_similarity', 0)),
+                'embedding': embedding_list,
+                'selection_reason': f"Best in {photo.get('category', 'category')} for {photo.get('month', 'month')}",
+                'selection_detail': f"Selected from {photo.get('month', 'Unknown')} - Category: {photo.get('category', 'unknown')}"
             })
 
         # Process rejected photos
-        for photo in selection_results['rejected']:
+        for photo in rejected_photos:
             filename = photo['filename']
             thumb_name = f"thumb_{filename.rsplit('.', 1)[0]}.jpg"
             thumb_path = os.path.join(thumbs_dir, thumb_name)
 
             create_thumbnail(os.path.join(upload_dir, filename), thumb_path)
 
-            reason = photo.get('rejection_reason', None)
-            if isinstance(reason, SelectionReason):
-                reason_text = reason.value
-            else:
-                reason_text = str(reason) if reason else 'Did not meet quality threshold'
+            # Simple rejection reason
+            reason = "Better photos selected"
+            rejection_counts[reason] += 1
+
+            # Get embedding for this photo (convert to list for JSON serialization)
+            photo_embedding = embeddings.get(filename)
+            embedding_list = photo_embedding.tolist() if photo_embedding is not None else None
 
             results['rejected'].append({
                 'filename': filename,
@@ -480,10 +670,17 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
                 'score': float(photo.get('total', 0)),
                 'face_quality': float(photo.get('face_quality', 0)),
                 'aesthetic_quality': float(photo.get('aesthetic_quality', 0)),
-                'bucket': photo.get('bucket', 'unknown'),
-                'reason': reason_text,
-                'reason_detail': photo.get('rejection_detail', '')
+                'bucket': photo.get('month', 'unknown'),
+                'month': photo.get('month', 'Unknown'),
+                'category': photo.get('category', 'unknown'),
+                'cluster_id': photo.get('cluster_id', -1),
+                'max_similarity': float(photo.get('max_similarity', 0)),
+                'embedding': embedding_list,
+                'reason': reason,
+                'reason_detail': f"Category: {photo.get('category', 'unknown')}"
             })
+
+        results['rejection_breakdown'] = dict(rejection_counts)
 
         # Sort by score
         results['selected'].sort(key=lambda x: x['score'], reverse=True)
@@ -503,7 +700,16 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
         print(f"  - Final selection: {len(results['selected'])} photos")
         print(f"  - Filtered out: {len(results['rejected'])} photos")
         print(f"  - Results saved to: {results_file}")
+        print(f"\n=== Month Distribution ===")
+        for stat in month_stats:
+            print(f"  {stat['month']}: {stat['selected']}/{stat['total_photos']} ({stat['category_summary']})")
         print(f"{'='*60}\n")
+
+        # Auto-save both selected and not-selected photos organized by month
+        output_folder = save_photos_by_month(job_id, upload_dir, selected_photos, rejected_photos, month_stats)
+        if output_folder:
+            processing_jobs[job_id]['output_folder'] = output_folder
+            print(f"[Job {job_id}] Photos auto-saved to: {output_folder}")
 
     except Exception as e:
         print(f"[Job {job_id}] EXCEPTION: {str(e)}")
@@ -918,6 +1124,97 @@ def upload_files():
     })
 
 
+@app.route('/upload_folder', methods=['POST'])
+def upload_folder():
+    """Process photos from a local folder path (for large batches)."""
+    data = request.get_json()
+    folder_path = data.get('folder_path', '').strip()
+    quality_mode = data.get('quality_mode', 'balanced')
+    similarity_threshold = float(data.get('similarity_threshold', 0.92))
+
+    if not folder_path:
+        return jsonify({'error': 'No folder path provided'}), 400
+
+    # Validate folder exists
+    if not os.path.isdir(folder_path):
+        return jsonify({'error': f'Folder not found: {folder_path}'}), 400
+
+    # Get session ID for face matching
+    session_id = session.get('session_id')
+
+    # Create job with reference to original folder
+    job_id = str(uuid.uuid4())[:8]
+
+    # Count valid image files
+    image_extensions = {'.jpg', '.jpeg', '.png', '.heic', '.heif', '.webp'}
+    image_files = [f for f in os.listdir(folder_path)
+                   if os.path.splitext(f.lower())[1] in image_extensions]
+
+    if not image_files:
+        return jsonify({'error': 'No valid image files found in folder'}), 400
+
+    print(f"\n[Job {job_id}] LOCAL FOLDER MODE")
+    print(f"  - Folder: {folder_path}")
+    print(f"  - Images found: {len(image_files)}")
+
+    # Check if we have reference photos loaded
+    has_references = False
+    ref_count = 0
+    if session_id and session_id in face_matchers:
+        ref_count = face_matchers[session_id].get_reference_count()
+        has_references = ref_count > 0
+
+    # Create thumbnails directory
+    thumb_dir = os.path.join(UPLOAD_FOLDER, job_id, 'thumbnails')
+    os.makedirs(thumb_dir, exist_ok=True)
+
+    # Initialize job - use original folder path as upload_dir
+    processing_jobs[job_id] = {
+        'status': 'queued',
+        'progress': 0,
+        'message': 'Preparing to process photos...',
+        'total_files': len(image_files),
+        'total_uploaded': len(image_files),
+        'upload_dir': folder_path,  # Point to original folder
+        'thumb_dir': thumb_dir,
+        'session_id': session_id,
+        'has_reference_photos': has_references,
+        'reference_count': ref_count,
+        'quality_mode': quality_mode,
+        'similarity_threshold': similarity_threshold,
+        'is_local_folder': True,  # Flag for local folder mode
+        'results': None
+    }
+
+    # Decide which processing mode to use
+    if has_references:
+        print(f"  - Reference photos: {ref_count}")
+        print(f"  - Mode: Face Filtering")
+        thread = threading.Thread(
+            target=process_photos_face_filter_only,
+            args=(job_id, folder_path, session_id)
+        )
+        message = f'Scanning {len(image_files)} photos to find your child...'
+    else:
+        print(f"  - Mode: Full Automatic")
+        thread = threading.Thread(
+            target=process_photos_automatic,
+            args=(job_id, folder_path, quality_mode, similarity_threshold, session_id)
+        )
+        message = 'Processing started - AI will automatically select the best photos!'
+
+    thread.start()
+
+    return jsonify({
+        'job_id': job_id,
+        'files_found': len(image_files),
+        'has_reference_photos': has_references,
+        'reference_count': ref_count,
+        'message': message,
+        'needs_review': has_references
+    })
+
+
 @app.route('/status/<job_id>')
 def get_status(job_id):
     """Get processing status."""
@@ -928,7 +1225,9 @@ def get_status(job_id):
     response = {
         'status': job['status'],
         'progress': job['progress'],
-        'message': job['message']
+        'message': job['message'],
+        'total_photos': job.get('total_photos', 0),
+        'photos_checked': job.get('photos_checked', 0)
     }
 
     if job['status'] == 'complete' and job['results']:
@@ -1072,6 +1371,49 @@ def download_selected(job_id):
     )
 
 
+@app.route('/download_filtered/<job_id>')
+def download_filtered(job_id):
+    """Download all filtered photos (after face matching, before quality selection)."""
+    import zipfile
+    from io import BytesIO
+
+    if job_id not in processing_jobs:
+        return jsonify({'error': 'Job not found'}), 404
+
+    job = processing_jobs[job_id]
+
+    # Get filtered photos from review data
+    filtered_photos = []
+    if 'review_data' in job:
+        filtered_photos = [p['filename'] for p in job['review_data'].get('filtered_photos', [])]
+    else:
+        # Try to load from file
+        review_file = os.path.join(RESULTS_FOLDER, f"{job_id}_review.json")
+        if os.path.exists(review_file):
+            with open(review_file, 'r') as f:
+                review_data = json.load(f)
+            filtered_photos = [p['filename'] for p in review_data.get('filtered_photos', [])]
+
+    if not filtered_photos:
+        return jsonify({'error': 'No filtered photos found'}), 404
+
+    # Create zip file
+    memory_file = BytesIO()
+    with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for filename in filtered_photos:
+            photo_path = os.path.join(job['upload_dir'], filename)
+            if os.path.exists(photo_path):
+                zf.write(photo_path, filename)
+
+    memory_file.seek(0)
+    return send_file(
+        memory_file,
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name=f'filtered_photos_{job_id}.zip'
+    )
+
+
 @app.route('/cleanup/<job_id>', methods=['POST'])
 def cleanup_job(job_id):
     """Clean up job files."""
@@ -1138,7 +1480,19 @@ def get_review_data(job_id):
 @app.route('/review_thumbnail/<job_id>/<filename>')
 def get_review_thumbnail(job_id, filename):
     """Serve thumbnail for review page."""
+    # Thumbnails are always stored in uploads/<job_id>/thumbnails
     thumb_dir = os.path.join(UPLOAD_FOLDER, job_id, 'thumbnails')
+    if os.path.exists(os.path.join(thumb_dir, filename)):
+        return send_from_directory(thumb_dir, filename)
+
+    # Fallback: check if thumbnails are in the upload_dir (for older jobs)
+    if job_id in processing_jobs:
+        job = processing_jobs[job_id]
+        upload_dir = job.get('upload_dir', '')
+        fallback_dir = os.path.join(upload_dir, 'thumbnails')
+        if os.path.exists(os.path.join(fallback_dir, filename)):
+            return send_from_directory(fallback_dir, filename)
+
     return send_from_directory(thumb_dir, filename)
 
 
@@ -1265,6 +1619,308 @@ def step4_results(job_id):
                           reference_count=ref_count)
 
 
+# ==================== TEST SINGLE MONTH ROUTES ====================
+
+@app.route('/test-month')
+def test_month_page():
+    """Test page for single month photo selection."""
+    return render_template('test_month.html')
+
+
+@app.route('/test-month/start', methods=['POST'])
+def test_month_start():
+    """Start processing a single month folder."""
+    data = request.get_json()
+    folder_path = data.get('folder_path', '').strip()
+    target = int(data.get('target', 40))
+
+    if not folder_path:
+        return jsonify({'error': 'No folder path provided'}), 400
+
+    if not os.path.isdir(folder_path):
+        return jsonify({'error': f'Folder not found: {folder_path}'}), 400
+
+    # Count valid image files
+    extensions = {'.jpg', '.jpeg', '.png', '.heic', '.heif', '.webp'}
+    image_files = [f for f in os.listdir(folder_path)
+                   if os.path.splitext(f.lower())[1] in extensions]
+
+    if not image_files:
+        return jsonify({'error': 'No valid image files found in folder'}), 400
+
+    # Create job
+    job_id = str(uuid.uuid4())[:8]
+
+    # Create thumbnails directory
+    thumb_dir = os.path.join(UPLOAD_FOLDER, job_id, 'thumbnails')
+    os.makedirs(thumb_dir, exist_ok=True)
+
+    processing_jobs[job_id] = {
+        'status': 'processing',
+        'progress': 0,
+        'message': 'Starting single month test...',
+        'folder_path': folder_path,
+        'thumb_dir': thumb_dir,
+        'target': target,
+        'total_files': len(image_files),
+        'results': None
+    }
+
+    # Start processing in background
+    thread = threading.Thread(
+        target=process_test_month,
+        args=(job_id, folder_path, target, thumb_dir)
+    )
+    thread.start()
+
+    return jsonify({
+        'job_id': job_id,
+        'total_photos': len(image_files),
+        'target': target,
+        'message': f'Processing {len(image_files)} photos...'
+    })
+
+
+def process_test_month(job_id, folder_path, target, thumb_dir):
+    """Process a single month folder for testing with category-aware selection."""
+    try:
+        from photo_selector.monthly_selector import MonthlyPhotoSelector, CategoryDetector
+        from photo_selector.embeddings import PhotoEmbedder
+        from photo_selector.scoring import PhotoScorer
+
+        job = processing_jobs[job_id]
+
+        # Get all photos
+        extensions = {'.jpg', '.jpeg', '.png', '.heic', '.heif', '.webp'}
+        photo_files = [f for f in os.listdir(folder_path)
+                       if os.path.splitext(f.lower())[1] in extensions]
+        photo_paths = [os.path.join(folder_path, f) for f in photo_files]
+
+        job['message'] = 'Loading CLIP model...'
+        job['progress'] = 5
+
+        # Initialize embedder and selector
+        embedder = PhotoEmbedder()
+        selector = MonthlyPhotoSelector()
+
+        # Step 1: Generate embeddings
+        job['message'] = f'Generating embeddings for {len(photo_paths)} photos...'
+        job['progress'] = 10
+        embeddings = embedder.process_folder(folder_path)
+        job['progress'] = 30
+
+        # Step 2: Detect categories for all photos
+        job['message'] = 'Detecting photo categories...'
+        job['progress'] = 35
+        selector._ensure_category_detector()
+        categories = selector.category_detector.detect_categories_batch(photo_paths)
+        job['progress'] = 45
+
+        # Step 3: Score photos and add category + timestamp
+        job['message'] = 'Scoring photos...'
+        scorer = PhotoScorer()
+        scored_photos = []
+
+        for i, photo_path in enumerate(photo_paths):
+            filename = os.path.basename(photo_path)
+            scores = scorer.score_photo(photo_path)
+
+            # Get category
+            cat, conf = categories.get(filename, ('unknown', 0.0))
+
+            # Get timestamp from EXIF
+            dt = selector.get_photo_date(photo_path)
+
+            scored_photos.append({
+                'filename': filename,
+                'filepath': photo_path,
+                'total': scores.get('total', 0),
+                'face_quality': scores.get('face_quality', 0),
+                'aesthetic_quality': scores.get('aesthetic_quality', 0),
+                'emotional_signal': scores.get('emotional_signal', 0),
+                'uniqueness': scores.get('uniqueness', 0.5),
+                'num_faces': scores.get('num_faces', 0),
+                'category': cat,
+                'category_confidence': conf,
+                'timestamp': dt.timestamp() if dt else None
+            })
+
+            if (i + 1) % 10 == 0:
+                job['progress'] = 45 + int((i / len(photo_paths)) * 20)
+                job['message'] = f'Scoring photos... {i + 1}/{len(photo_paths)}'
+
+        job['progress'] = 70
+
+        # Step 4: Run category-aware HDBSCAN selection
+        job['message'] = 'Running category-aware clustering and selection...'
+        selected = selector.select_hybrid_hdbscan(scored_photos, embeddings, target=target)
+
+        job['progress'] = 85
+        job['message'] = 'Creating thumbnails...'
+
+        # Create thumbnails and build results
+        selected_results = []
+        for photo in selected:
+            filename = photo['filename']
+            filepath = photo['filepath']
+            thumb_name = f"thumb_{filename.rsplit('.', 1)[0]}.jpg"
+            thumb_path = os.path.join(thumb_dir, thumb_name)
+
+            create_thumbnail(filepath, thumb_path)
+
+            # Get embedding for this photo
+            photo_emb = embeddings.get(filename)
+            embedding_list = photo_emb.tolist() if photo_emb is not None else None
+
+            # Format timestamp for display
+            ts = photo.get('timestamp')
+            datetime_str = ''
+            if ts:
+                from datetime import datetime
+                dt = datetime.fromtimestamp(ts)
+                datetime_str = dt.strftime('%Y-%m-%d %H:%M:%S')
+
+            selected_results.append({
+                'filename': filename,
+                'thumbnail': thumb_name,
+                'score': float(photo.get('total', 0)),
+                'face_quality': float(photo.get('face_quality', 0)),
+                'aesthetic_quality': float(photo.get('aesthetic_quality', 0)),
+                'emotional_signal': float(photo.get('emotional_signal', 0)),
+                'uniqueness': float(photo.get('uniqueness', 0)),
+                'num_faces': int(photo.get('num_faces', 0)),
+                'multi_face_bonus': float(photo.get('multi_face_bonus', 0)),
+                'cluster_id': photo.get('cluster_id', -1),
+                'max_similarity': float(photo.get('max_similarity', 0)),
+                'category': photo.get('category', 'unknown'),
+                'category_confidence': float(photo.get('category_confidence', 0)),
+                'event_id': photo.get('event_id', -1),
+                'selection_reason': photo.get('selection_reason', ''),
+                'datetime': datetime_str,
+                'embedding': embedding_list
+            })
+
+        # Build rejected list
+        selected_filenames = {p['filename'] for p in selected}
+        rejected_results = []
+
+        for photo in scored_photos:
+            if photo['filename'] not in selected_filenames:
+                filename = photo['filename']
+                filepath = photo['filepath']
+                thumb_name = f"thumb_{filename.rsplit('.', 1)[0]}.jpg"
+                thumb_path = os.path.join(thumb_dir, thumb_name)
+
+                create_thumbnail(filepath, thumb_path)
+
+                photo_emb = embeddings.get(filename)
+                embedding_list = photo_emb.tolist() if photo_emb is not None else None
+
+                # Format timestamp for display
+                ts = photo.get('timestamp')
+                datetime_str = ''
+                if ts:
+                    from datetime import datetime
+                    dt = datetime.fromtimestamp(ts)
+                    datetime_str = dt.strftime('%Y-%m-%d %H:%M:%S')
+
+                rejected_results.append({
+                    'filename': filename,
+                    'thumbnail': thumb_name,
+                    'score': float(photo.get('total', 0)),
+                    'face_quality': float(photo.get('face_quality', 0)),
+                    'aesthetic_quality': float(photo.get('aesthetic_quality', 0)),
+                    'num_faces': int(photo.get('num_faces', 0)),
+                    'cluster_id': photo.get('cluster_id', -1),
+                    'category': photo.get('category', 'unknown'),
+                    'event_id': photo.get('event_id', -1),
+                    'embedding': embedding_list,
+                    'max_similarity': float(photo.get('max_similarity', 0)),
+                    'selection_reason': photo.get('rejection_reason', 'Not selected'),
+                    'datetime': datetime_str
+                })
+
+        # Sort results
+        selected_results.sort(key=lambda x: x['score'], reverse=True)
+        rejected_results.sort(key=lambda x: x['score'], reverse=True)
+
+        # Cluster distribution
+        cluster_counts = {}
+        for photo in selected_results:
+            cid = photo.get('cluster_id', -1)
+            cluster_counts[cid] = cluster_counts.get(cid, 0) + 1
+
+        # Category distribution
+        category_counts = {}
+        for photo in selected_results:
+            cat = photo.get('category', 'unknown')
+            category_counts[cat] = category_counts.get(cat, 0) + 1
+
+        # Build results
+        job['results'] = {
+            'selected': selected_results,
+            'rejected': rejected_results,
+            'summary': {
+                'total_photos': len(photo_paths),
+                'selected_count': len(selected_results),
+                'rejected_count': len(rejected_results),
+                'target': target
+            },
+            'cluster_distribution': cluster_counts,
+            'category_distribution': category_counts
+        }
+
+        job['status'] = 'complete'
+        job['progress'] = 100
+        job['message'] = f'Done! Selected {len(selected_results)} of {len(photo_paths)} photos'
+
+        print(f"\n[Test Month {job_id}] Complete!")
+        print(f"  - Total: {len(photo_paths)}")
+        print(f"  - Selected: {len(selected_results)}")
+        print(f"  - Clusters: {cluster_counts}")
+        print(f"  - Categories: {category_counts}")
+
+    except Exception as e:
+        processing_jobs[job_id]['status'] = 'error'
+        processing_jobs[job_id]['message'] = str(e)
+        import traceback
+        traceback.print_exc()
+
+
+@app.route('/test-month/status/<job_id>')
+def test_month_status(job_id):
+    """Get test month job status."""
+    if job_id not in processing_jobs:
+        return jsonify({'error': 'Job not found'}), 404
+
+    job = processing_jobs[job_id]
+    return jsonify({
+        'status': job['status'],
+        'progress': job['progress'],
+        'message': job['message']
+    })
+
+
+@app.route('/test-month/results/<job_id>')
+def test_month_results(job_id):
+    """Get test month results."""
+    if job_id not in processing_jobs:
+        return jsonify({'error': 'Job not found'}), 404
+
+    job = processing_jobs[job_id]
+    if job['status'] != 'complete':
+        return jsonify({'error': 'Not complete', 'status': job['status']}), 400
+
+    return jsonify(job['results'])
+
+
+@app.route('/test-month/thumbnail/<job_id>/<filename>')
+def test_month_thumbnail(job_id, filename):
+    """Serve test month thumbnails."""
+    thumb_dir = os.path.join(UPLOAD_FOLDER, job_id, 'thumbnails')
+    return send_from_directory(thumb_dir, filename)
+
+
 if __name__ == '__main__':
     print("""
     ============================================
@@ -1273,6 +1929,8 @@ if __name__ == '__main__':
 
         NEW: Automatic selection mode!
         The AI decides which photos to keep.
+
+        TEST: /test-month for single folder testing
     ============================================
     """)
     app.run(debug=True, host='0.0.0.0', port=5000)

@@ -363,6 +363,76 @@
             margin-left: 15px;
         }
 
+        /* Month Distribution Table */
+        .month-table-container {
+            overflow-x: auto;
+        }
+
+        .month-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        .month-table th,
+        .month-table td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .month-table th {
+            background: #f9fafb;
+            font-weight: 600;
+            color: #4b5563;
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: 0.5px;
+        }
+
+        .month-table tbody tr:hover {
+            background: #f9fafb;
+        }
+
+        .month-table .month-name {
+            font-weight: 600;
+            color: #1a1a2e;
+        }
+
+        .month-table .categories {
+            color: #6b7280;
+            font-size: 13px;
+            max-width: 450px;
+        }
+
+        .month-table .category-tag {
+            display: inline-block;
+            background: #e5e7eb;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            margin: 2px;
+        }
+
+        .month-table .selected-count {
+            font-weight: 700;
+            color: #667eea;
+        }
+
+        .month-table tfoot tr {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .month-table tfoot td {
+            font-weight: 600;
+            border-bottom: none;
+        }
+
+        .month-table tfoot .selected-count {
+            color: white;
+        }
+
         /* Tabs */
         .tabs-container {
             background: white;
@@ -432,6 +502,37 @@
 
         /* Photo Grid */
         .photo-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+        }
+
+        /* Month Section */
+        .month-section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 15px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px;
+            color: white;
+        }
+
+        .month-section-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .month-section-count {
+            font-size: 14px;
+            opacity: 0.9;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 4px 12px;
+            border-radius: 20px;
+        }
+
+        .month-photo-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
             gap: 20px;
@@ -482,6 +583,23 @@
             background: #9ca3af;
         }
 
+        .month-badge {
+            background: #10b981;
+            color: white;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .category-label {
+            font-size: 11px;
+            color: #667eea;
+            font-weight: 500;
+            margin-bottom: 4px;
+            text-transform: capitalize;
+        }
+
         .photo-reason {
             font-size: 13px;
             color: #6b7280;
@@ -490,6 +608,41 @@
             -webkit-line-clamp: 2;
             -webkit-box-orient: vertical;
             overflow: hidden;
+        }
+
+        .cluster-badge {
+            background: #f59e0b;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .similarity-badge {
+            background: #6366f1;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+
+        .photo-meta {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-top: 6px;
+        }
+
+        .embedding-preview {
+            font-size: 10px;
+            color: #9ca3af;
+            font-family: monospace;
+            margin-top: 4px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .empty-state {
@@ -594,7 +747,7 @@
 
         .score-breakdown {
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
+            grid-template-columns: repeat(3, 1fr);
             gap: 12px;
         }
 
@@ -657,13 +810,38 @@
                 grid-template-columns: repeat(2, 1fr);
             }
 
-            .photo-grid {
+            .month-photo-grid {
                 grid-template-columns: repeat(2, 1fr);
                 gap: 12px;
             }
 
+            .month-section-header {
+                padding: 12px 15px;
+            }
+
+            .month-section-title {
+                font-size: 16px;
+            }
+
             .score-breakdown {
-                grid-template-columns: 1fr;
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .month-table {
+                font-size: 12px;
+            }
+
+            .month-table th,
+            .month-table td {
+                padding: 8px 10px;
+            }
+
+            .month-table .categories {
+                max-width: 150px;
+            }
+
+            .month-badge {
+                display: none;
             }
         }
     </style>
@@ -764,6 +942,27 @@
                 </div>
             </div>
 
+            <!-- Month Distribution Table -->
+            <div class="breakdown-card" id="month-distribution">
+                <h3>Photo Selection by Month</h3>
+                <div class="month-table-container">
+                    <table class="month-table" id="month-table">
+                        <thead>
+                            <tr>
+                                <th>Month</th>
+                                <th>Total</th>
+                                <th>Categories</th>
+                                <th>Selected</th>
+                            </tr>
+                        </thead>
+                        <tbody id="month-table-body">
+                        </tbody>
+                        <tfoot id="month-table-foot">
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+
             <!-- Rejection Breakdown -->
             <div class="breakdown-card" id="rejection-breakdown">
                 <h3>Why Photos Were Filtered Out</h3>
@@ -861,6 +1060,9 @@
                 document.getElementById('selected-count').textContent = results.selected?.length || 0;
                 document.getElementById('rejected-count').textContent = results.rejected?.length || 0;
 
+                // Render month distribution table
+                renderMonthTable();
+
                 // Render rejection breakdown
                 renderRejectionBreakdown();
 
@@ -876,6 +1078,56 @@
                 console.error('Error loading results:', error);
                 alert('Failed to load results: ' + error.message);
             }
+        }
+
+        function renderMonthTable() {
+            const monthStats = results.month_stats || [];
+            const tbody = document.getElementById('month-table-body');
+            const tfoot = document.getElementById('month-table-foot');
+            tbody.innerHTML = '';
+            tfoot.innerHTML = '';
+
+            if (monthStats.length === 0) {
+                document.getElementById('month-distribution').style.display = 'none';
+                return;
+            }
+
+            let totalPhotos = 0;
+            let totalSelected = 0;
+
+            for (const stat of monthStats) {
+                totalPhotos += stat.total_photos || 0;
+                totalSelected += stat.selected || 0;
+
+                // Build category tags - show ALL categories
+                const categories = stat.categories || {};
+                let categoryHtml = '';
+                const sortedCats = Object.entries(categories)
+                    .sort((a, b) => b[1] - a[1]);  // Sort by count, show all
+
+                for (const [cat, count] of sortedCats) {
+                    categoryHtml += `<span class="category-tag">${cat}: ${count}</span>`;
+                }
+
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="month-name">${stat.month}</td>
+                    <td>${stat.total_photos || 0}</td>
+                    <td class="categories">${categoryHtml || '-'}</td>
+                    <td class="selected-count">${stat.selected || 0}</td>
+                `;
+                tbody.appendChild(row);
+            }
+
+            // Add total row
+            const footRow = document.createElement('tr');
+            footRow.innerHTML = `
+                <td>TOTAL</td>
+                <td>${totalPhotos}</td>
+                <td></td>
+                <td class="selected-count">${totalSelected}</td>
+            `;
+            tfoot.appendChild(footRow);
         }
 
         function renderRejectionBreakdown() {
@@ -907,6 +1159,18 @@
             }
         }
 
+        // Month order for sorting (calendar order)
+        const MONTH_ORDER = {
+            'January': 1, 'February': 2, 'March': 3, 'April': 4,
+            'May': 5, 'June': 6, 'July': 7, 'August': 8,
+            'September': 9, 'October': 10, 'November': 11, 'December': 12,
+            'Unknown': 13
+        };
+
+        function getMonthOrder(monthName) {
+            return MONTH_ORDER[monthName] || 13;
+        }
+
         function renderPhotoGrid(gridId, photos, isSelected) {
             const grid = document.getElementById(gridId);
             grid.innerHTML = '';
@@ -921,27 +1185,60 @@
                 return;
             }
 
+            // Group photos by month
+            const photosByMonth = {};
             for (const photo of photos) {
-                const card = document.createElement('div');
-                card.className = `photo-card ${isSelected ? '' : 'rejected'}`;
-                card.onclick = () => openModal(photo, isSelected);
+                const month = photo.month || photo.bucket || 'Unknown';
+                if (!photosByMonth[month]) {
+                    photosByMonth[month] = [];
+                }
+                photosByMonth[month].push(photo);
+            }
 
-                const reason = isSelected
-                    ? (photo.selection_reason || 'High quality')
-                    : (photo.reason || 'Did not meet threshold');
+            // Sort months in calendar order
+            const sortedMonths = Object.keys(photosByMonth).sort((a, b) => {
+                return getMonthOrder(a) - getMonthOrder(b);
+            });
 
-                const scorePercent = photo.score ? (photo.score * 100).toFixed(0) : '0';
+            // Render each month section
+            for (const month of sortedMonths) {
+                const monthPhotos = photosByMonth[month];
 
-                card.innerHTML = `
-                    <img src="/thumbnail/${jobId}/${photo.thumbnail}" alt="${photo.filename}" loading="lazy">
-                    <div class="photo-info">
-                        <div class="photo-score">
-                            <span class="score-badge">${scorePercent}%</span>
-                        </div>
-                        <div class="photo-reason">${reason}</div>
-                    </div>
+                // Create month header
+                const monthHeader = document.createElement('div');
+                monthHeader.className = 'month-section-header';
+                monthHeader.innerHTML = `
+                    <h3 class="month-section-title">${month}</h3>
+                    <span class="month-section-count">${monthPhotos.length} photo${monthPhotos.length !== 1 ? 's' : ''}</span>
                 `;
-                grid.appendChild(card);
+                grid.appendChild(monthHeader);
+
+                // Create photo container for this month
+                const monthGrid = document.createElement('div');
+                monthGrid.className = 'month-photo-grid';
+
+                for (const photo of monthPhotos) {
+                    const card = document.createElement('div');
+                    card.className = `photo-card ${isSelected ? '' : 'rejected'}`;
+                    card.onclick = () => openModal(photo, isSelected);
+
+                    const reason = isSelected
+                        ? (photo.selection_reason || 'High quality')
+                        : (photo.reason || 'Did not meet threshold');
+
+                    const category = photo.category || '';
+
+                    card.innerHTML = `
+                        <img src="/thumbnail/${jobId}/${photo.thumbnail}" alt="${photo.filename}" loading="lazy">
+                        <div class="photo-info">
+                            ${category ? `<div class="category-label">${category}</div>` : ''}
+                            <div class="photo-reason">${reason}</div>
+                        </div>
+                    `;
+                    monthGrid.appendChild(card);
+                }
+
+                grid.appendChild(monthGrid);
             }
         }
 
@@ -972,6 +1269,8 @@
             const scorePercent = photo.score ? (photo.score * 100).toFixed(0) : '0';
             const faceQuality = photo.face_quality ? (photo.face_quality * 100).toFixed(0) : 'N/A';
             const aesthetic = photo.aesthetic_quality ? (photo.aesthetic_quality * 100).toFixed(0) : 'N/A';
+            const eventId = photo.event_id !== undefined ? photo.event_id : -1;
+            const eventLabel = eventId >= 0 ? `Event ${eventId}` : 'Unknown';
 
             scoresDiv.innerHTML = `
                 <div class="score-item">
@@ -987,8 +1286,16 @@
                     <strong>${aesthetic}${aesthetic !== 'N/A' ? '%' : ''}</strong>
                 </div>
                 <div class="score-item">
-                    <span>Bucket</span>
-                    <strong>${photo.bucket || 'Unknown'}</strong>
+                    <span>Month</span>
+                    <strong>${photo.month || photo.bucket || 'Unknown'}</strong>
+                </div>
+                <div class="score-item">
+                    <span>Category</span>
+                    <strong>${photo.category || 'Unknown'}</strong>
+                </div>
+                <div class="score-item">
+                    <span>Event</span>
+                    <strong>${eventLabel}</strong>
                 </div>
             `;
 

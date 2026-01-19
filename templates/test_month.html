@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Single Month - Photo Selection</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+        }
+
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        .input-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #374151;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+
+        .input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .input-row {
+            display: flex;
+            gap: 20px;
+        }
+
+        .input-row .input-group {
+            flex: 1;
+        }
+
+        .input-row .input-group.small {
+            flex: 0 0 150px;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 14px 28px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .progress-section {
+            display: none;
+            margin-top: 20px;
+        }
+
+        .progress-bar {
+            height: 8px;
+            background: #e5e7eb;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            transition: width 0.3s;
+            width: 0%;
+        }
+
+        .progress-text {
+            color: #6b7280;
+            font-size: 14px;
+        }
+
+        .results-section {
+            display: none;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .summary-item {
+            background: #f3f4f6;
+            padding: 16px;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .summary-item .value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #667eea;
+        }
+
+        .summary-item .label {
+            color: #6b7280;
+            font-size: 13px;
+            margin-top: 4px;
+        }
+
+        .cluster-distribution {
+            background: #f9fafb;
+            padding: 16px;
+            border-radius: 12px;
+            margin-bottom: 24px;
+        }
+
+        .cluster-distribution h3 {
+            margin-bottom: 12px;
+            color: #374151;
+        }
+
+        .cluster-bar {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .cluster-label {
+            width: 100px;
+            font-size: 13px;
+            color: #6b7280;
+        }
+
+        .cluster-fill {
+            height: 24px;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 8px;
+            color: white;
+            font-size: 12px;
+            font-weight: 600;
+            min-width: 30px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+
+        .tab {
+            padding: 10px 20px;
+            background: #f3f4f6;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            color: #6b7280;
+            transition: all 0.2s;
+        }
+
+        .tab.active {
+            background: #667eea;
+            color: white;
+        }
+
+        .photo-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 16px;
+        }
+
+        .photo-card {
+            background: #f9fafb;
+            border-radius: 12px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .photo-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+        }
+
+        .photo-card img {
+            width: 100%;
+            height: 150px;
+            object-fit: cover;
+        }
+
+        .photo-info {
+            padding: 12px;
+        }
+
+        .photo-score {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+
+        .score-badge {
+            background: #10b981;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .cluster-badge {
+            background: #f59e0b;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .similarity-badge {
+            background: #6366f1;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+
+        .category-badge {
+            background: #8b5cf6;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .category-badge.outdoor { background: #22c55e; }
+        .category-badge.indoor { background: #3b82f6; }
+        .category-badge.portrait { background: #ec4899; }
+        .category-badge.group { background: #f59e0b; }
+        .category-badge.activity { background: #ef4444; }
+        .category-badge.event { background: #8b5cf6; }
+        .category-badge.candid { background: #6b7280; }
+        .category-badge.unknown { background: #9ca3af; }
+
+        .photo-filename {
+            font-size: 12px;
+            color: #6b7280;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 16px;
+            max-width: 900px;
+            max-height: 90vh;
+            overflow: auto;
+            width: 100%;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #6b7280;
+        }
+
+        .modal-body {
+            padding: 20px;
+        }
+
+        .modal-image {
+            width: 100%;
+            max-height: 400px;
+            object-fit: contain;
+            background: #f3f4f6;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .score-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+
+        .score-item {
+            background: #f3f4f6;
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .score-item span {
+            display: block;
+            font-size: 12px;
+            color: #6b7280;
+            margin-bottom: 4px;
+        }
+
+        .score-item strong {
+            font-size: 18px;
+            color: #374151;
+        }
+
+        .embedding-preview {
+            margin-top: 16px;
+            padding: 12px;
+            background: #f9fafb;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 11px;
+            color: #6b7280;
+            word-break: break-all;
+        }
+
+        .error-message {
+            background: #fef2f2;
+            color: #dc2626;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-top: 16px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Test Single Month Selection</h1>
+            <p>Test the photo selection algorithm on a single folder</p>
+        </div>
+
+        <div class="card" id="input-card">
+            <div class="input-row">
+                <div class="input-group">
+                    <label>Folder Path</label>
+                    <input type="text" id="folder-path" placeholder="C:\Photos\January" />
+                </div>
+                <div class="input-group small">
+                    <label>Target Count</label>
+                    <input type="number" id="target" value="40" min="1" max="200" />
+                </div>
+            </div>
+            <button class="btn" id="start-btn" onclick="startTest()">Start Test</button>
+
+            <div class="progress-section" id="progress-section">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+                <div class="progress-text" id="progress-text">Starting...</div>
+            </div>
+
+            <div class="error-message" id="error-message"></div>
+        </div>
+
+        <div class="card results-section" id="results-section">
+            <h2 style="margin-bottom: 20px;">Results</h2>
+
+            <div class="summary-grid" id="summary-grid"></div>
+
+            <div class="cluster-distribution" id="category-distribution">
+                <h3>Category Distribution</h3>
+                <div id="category-bars"></div>
+            </div>
+
+            <div class="cluster-distribution" id="cluster-distribution">
+                <h3>Cluster Distribution</h3>
+                <div id="cluster-bars"></div>
+            </div>
+
+            <div class="tabs">
+                <button class="tab active" onclick="showTab('selected')">Selected</button>
+                <button class="tab" onclick="showTab('rejected')">Not Selected</button>
+            </div>
+
+            <div class="photo-grid" id="photo-grid"></div>
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div class="modal" id="photo-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">Photo Details</h3>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <img class="modal-image" id="modal-image" src="" alt="">
+                <div class="score-grid" id="modal-scores"></div>
+                <div class="embedding-preview" id="modal-embedding"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let jobId = null;
+        let pollInterval = null;
+        let resultsData = null;
+        let currentTab = 'selected';
+
+        async function startTest() {
+            const folderPath = document.getElementById('folder-path').value.trim();
+            const target = parseInt(document.getElementById('target').value) || 40;
+
+            if (!folderPath) {
+                showError('Please enter a folder path');
+                return;
+            }
+
+            // Reset UI
+            document.getElementById('error-message').style.display = 'none';
+            document.getElementById('results-section').style.display = 'none';
+            document.getElementById('progress-section').style.display = 'block';
+            document.getElementById('start-btn').disabled = true;
+            document.getElementById('progress-fill').style.width = '0%';
+            document.getElementById('progress-text').textContent = 'Starting...';
+
+            try {
+                const response = await fetch('/test-month/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ folder_path: folderPath, target: target })
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    showError(data.error);
+                    document.getElementById('progress-section').style.display = 'none';
+                    document.getElementById('start-btn').disabled = false;
+                    return;
+                }
+
+                jobId = data.job_id;
+                pollInterval = setInterval(pollStatus, 1000);
+
+            } catch (err) {
+                showError('Failed to start: ' + err.message);
+                document.getElementById('progress-section').style.display = 'none';
+                document.getElementById('start-btn').disabled = false;
+            }
+        }
+
+        async function pollStatus() {
+            if (!jobId) return;
+
+            try {
+                const response = await fetch(`/test-month/status/${jobId}`);
+                const data = await response.json();
+
+                document.getElementById('progress-fill').style.width = data.progress + '%';
+                document.getElementById('progress-text').textContent = data.message;
+
+                if (data.status === 'complete') {
+                    clearInterval(pollInterval);
+                    loadResults();
+                } else if (data.status === 'error') {
+                    clearInterval(pollInterval);
+                    showError(data.message);
+                    document.getElementById('progress-section').style.display = 'none';
+                    document.getElementById('start-btn').disabled = false;
+                }
+
+            } catch (err) {
+                console.error('Poll error:', err);
+            }
+        }
+
+        async function loadResults() {
+            try {
+                const response = await fetch(`/test-month/results/${jobId}`);
+                resultsData = await response.json();
+
+                // Show results section
+                document.getElementById('progress-section').style.display = 'none';
+                document.getElementById('results-section').style.display = 'block';
+                document.getElementById('start-btn').disabled = false;
+
+                // Render summary
+                const summary = resultsData.summary;
+                document.getElementById('summary-grid').innerHTML = `
+                    <div class="summary-item">
+                        <div class="value">${summary.total_photos}</div>
+                        <div class="label">Total Photos</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="value">${summary.selected_count}</div>
+                        <div class="label">Selected</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="value">${summary.rejected_count}</div>
+                        <div class="label">Not Selected</div>
+                    </div>
+                    <div class="summary-item">
+                        <div class="value">${summary.target}</div>
+                        <div class="label">Target</div>
+                    </div>
+                `;
+
+                // Render category distribution
+                const categories = resultsData.category_distribution || {};
+                const categoryColors = {
+                    'outdoor': '#22c55e',
+                    'indoor': '#3b82f6',
+                    'portrait': '#ec4899',
+                    'group': '#f59e0b',
+                    'activity': '#ef4444',
+                    'event': '#8b5cf6',
+                    'candid': '#6b7280',
+                    'unknown': '#9ca3af'
+                };
+
+                if (Object.keys(categories).length > 0) {
+                    const maxCatCount = Math.max(...Object.values(categories));
+                    let categoryHtml = '';
+
+                    for (const [cat, count] of Object.entries(categories).sort((a, b) => b[1] - a[1])) {
+                        const width = (count / maxCatCount) * 100;
+                        const color = categoryColors[cat] || '#8b5cf6';
+                        categoryHtml += `
+                            <div class="cluster-bar">
+                                <div class="cluster-label">${cat}</div>
+                                <div class="cluster-fill" style="width: ${Math.max(width, 10)}%; background: ${color}">${count}</div>
+                            </div>
+                        `;
+                    }
+                    document.getElementById('category-bars').innerHTML = categoryHtml;
+                    document.getElementById('category-distribution').style.display = 'block';
+                } else {
+                    document.getElementById('category-distribution').style.display = 'none';
+                }
+
+                // Render cluster distribution
+                const clusters = resultsData.cluster_distribution;
+                const maxCount = Math.max(...Object.values(clusters));
+                let clusterHtml = '';
+
+                for (const [cid, count] of Object.entries(clusters).sort((a, b) => b[1] - a[1])) {
+                    const label = cid >= 0 ? `Cluster ${cid}` : 'Fallback';
+                    const width = (count / maxCount) * 100;
+                    clusterHtml += `
+                        <div class="cluster-bar">
+                            <div class="cluster-label">${label}</div>
+                            <div class="cluster-fill" style="width: ${Math.max(width, 10)}%">${count}</div>
+                        </div>
+                    `;
+                }
+                document.getElementById('cluster-bars').innerHTML = clusterHtml;
+
+                // Render photos
+                showTab('selected');
+
+            } catch (err) {
+                showError('Failed to load results: ' + err.message);
+            }
+        }
+
+        function showTab(tab) {
+            currentTab = tab;
+
+            // Update tab buttons
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelector(`.tab:${tab === 'selected' ? 'first-child' : 'last-child'}`).classList.add('active');
+
+            // Render photos
+            const photos = tab === 'selected' ? resultsData.selected : resultsData.rejected;
+            renderPhotos(photos);
+        }
+
+        function renderPhotos(photos) {
+            const grid = document.getElementById('photo-grid');
+            grid.innerHTML = '';
+
+            for (const photo of photos) {
+                const card = document.createElement('div');
+                card.className = 'photo-card';
+                card.onclick = () => openModal(photo);
+
+                const scorePercent = (photo.score * 100).toFixed(0);
+                const clusterId = photo.cluster_id !== undefined ? photo.cluster_id : -1;
+                const clusterLabel = clusterId >= 0 ? `C${clusterId}` : 'FB';
+                const category = photo.category || 'unknown';
+
+                card.innerHTML = `
+                    <img src="/test-month/thumbnail/${jobId}/${photo.thumbnail}" alt="${photo.filename}" loading="lazy">
+                    <div class="photo-info">
+                        <div class="photo-score">
+                            <span class="score-badge">${scorePercent}%</span>
+                            <span class="category-badge ${category}">${category}</span>
+                            <span class="cluster-badge">${clusterLabel}</span>
+                        </div>
+                        <div class="photo-filename">${photo.filename}</div>
+                    </div>
+                `;
+
+                grid.appendChild(card);
+            }
+        }
+
+        function openModal(photo) {
+            document.getElementById('modal-title').textContent = photo.filename;
+            document.getElementById('modal-image').src = `/test-month/thumbnail/${jobId}/${photo.thumbnail}`;
+
+            const scorePercent = (photo.score * 100).toFixed(0);
+            const faceQuality = photo.face_quality ? (photo.face_quality * 100).toFixed(0) : 'N/A';
+            const aesthetic = photo.aesthetic_quality ? (photo.aesthetic_quality * 100).toFixed(0) : 'N/A';
+            const emotional = photo.emotional_signal ? (photo.emotional_signal * 100).toFixed(0) : 'N/A';
+            const uniqueness = photo.uniqueness ? (photo.uniqueness * 100).toFixed(0) : 'N/A';
+            const clusterId = photo.cluster_id !== undefined ? photo.cluster_id : -1;
+            const clusterLabel = clusterId >= 0 ? `Cluster ${clusterId}` : 'Fallback';
+            const similarity = photo.max_similarity !== undefined ? (photo.max_similarity * 100).toFixed(1) : '0.0';
+            const category = photo.category || 'unknown';
+            const eventId = photo.event_id !== undefined ? photo.event_id : -1;
+            const selectionReason = photo.selection_reason || '';
+            const datetime = photo.datetime || 'N/A';
+
+            document.getElementById('modal-scores').innerHTML = `
+                <div class="score-item">
+                    <span>Total Score</span>
+                    <strong>${scorePercent}%</strong>
+                </div>
+                <div class="score-item">
+                    <span>Face Quality</span>
+                    <strong>${faceQuality}%</strong>
+                </div>
+                <div class="score-item">
+                    <span>Aesthetic</span>
+                    <strong>${aesthetic}%</strong>
+                </div>
+                <div class="score-item">
+                    <span>Emotional</span>
+                    <strong>${emotional}%</strong>
+                </div>
+                <div class="score-item">
+                    <span>Uniqueness</span>
+                    <strong>${uniqueness}%</strong>
+                </div>
+                <div class="score-item">
+                    <span>Cluster</span>
+                    <strong>${clusterLabel}</strong>
+                </div>
+                <div class="score-item">
+                    <span>Max Similarity</span>
+                    <strong>${similarity}%</strong>
+                </div>
+                <div class="score-item">
+                    <span>Category</span>
+                    <strong>${category}</strong>
+                </div>
+                <div class="score-item">
+                    <span>Event ID</span>
+                    <strong>${eventId}</strong>
+                </div>
+                <div class="score-item" style="grid-column: span 2">
+                    <span>Date/Time</span>
+                    <strong>${datetime}</strong>
+                </div>
+                <div class="score-item" style="grid-column: span 3">
+                    <span>Selection Reason</span>
+                    <strong>${selectionReason || 'N/A'}</strong>
+                </div>
+            `;
+
+            // Embedding preview
+            let embeddingStr = 'No embedding data';
+            if (photo.embedding && photo.embedding.length > 0) {
+                const preview = photo.embedding.slice(0, 10).map(v => v.toFixed(4));
+                embeddingStr = `[${preview.join(', ')}...] (${photo.embedding.length} dimensions)`;
+            }
+            document.getElementById('modal-embedding').textContent = embeddingStr;
+
+            document.getElementById('photo-modal').classList.add('show');
+        }
+
+        function closeModal() {
+            document.getElementById('photo-modal').classList.remove('show');
+        }
+
+        function showError(message) {
+            const errorEl = document.getElementById('error-message');
+            errorEl.textContent = message;
+            errorEl.style.display = 'block';
+        }
+
+        // Close modal on escape
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeModal();
+        });
+
+        // Close modal on backdrop click
+        document.getElementById('photo-modal').addEventListener('click', (e) => {
+            if (e.target.id === 'photo-modal') closeModal();
+        });
+    </script>
+</body>
+</html>

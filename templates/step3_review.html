@@ -480,6 +480,15 @@
             background: #e53935;
         }
 
+        .btn-download {
+            background: #ff9800;
+            color: white;
+        }
+
+        .btn-download:hover {
+            background: #f57c00;
+        }
+
         @media (max-width: 768px) {
             .stats-row {
                 gap: 10px;
@@ -581,6 +590,7 @@
             <div class="action-buttons">
                 <button class="btn btn-primary" onclick="selectAll()">Select All</button>
                 <button class="btn btn-secondary" onclick="deselectAll()">Deselect All</button>
+                <button class="btn btn-download" onclick="downloadFiltered()">&#11015; Download All Matches</button>
             </div>
         </div>
 
@@ -795,6 +805,11 @@
                 alert('Failed to process selection.');
                 hideLoading();
             }
+        }
+
+        function downloadFiltered() {
+            // Download all filtered photos (photos of the child)
+            window.location.href = `/download_filtered/${jobId}`;
         }
 
         function showLoading(message) {
