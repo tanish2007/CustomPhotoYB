@@ -412,6 +412,337 @@
             margin-top: 16px;
             display: none;
         }
+
+        /* Cluster View */
+        .cluster-view {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .cluster-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1a1a2e;
+            margin-bottom: 4px;
+        }
+
+        .cluster-desc {
+            font-size: 13px;
+            color: #6b7280;
+            margin-bottom: 15px;
+        }
+
+        .cluster-photos {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .cluster-photo {
+            position: relative;
+            width: 70px;
+            height: 70px;
+            border-radius: 8px;
+            overflow: hidden;
+            cursor: pointer;
+            border: 3px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .cluster-photo:hover {
+            transform: scale(1.05);
+        }
+
+        .cluster-photo.selected {
+            border-color: #10b981;
+        }
+
+        .cluster-photo.rejected {
+            border-color: #ef4444;
+            opacity: 0.8;
+        }
+
+        .cluster-photo.current {
+            border-color: #667eea;
+            box-shadow: 0 0 0 2px #667eea;
+        }
+
+        .cluster-photo img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .cluster-photo-score {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            font-size: 10px;
+            font-weight: 600;
+            text-align: center;
+            padding: 2px 0;
+        }
+
+        .cluster-photo-badge {
+            position: absolute;
+            top: 3px;
+            right: 3px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 9px;
+            font-weight: bold;
+        }
+
+        .cluster-photo.selected .cluster-photo-badge {
+            background: #10b981;
+            color: white;
+        }
+
+        .cluster-photo.rejected .cluster-photo-badge {
+            background: #ef4444;
+            color: white;
+        }
+
+        /* Download Overlay */
+        .download-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.95);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 4000;
+        }
+
+        .download-overlay.hidden {
+            display: none;
+        }
+
+        .download-card {
+            background: white;
+            border-radius: 20px;
+            padding: 50px 60px;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+        }
+
+        .download-icon {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 25px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        .download-icon svg {
+            width: 40px;
+            height: 40px;
+            color: white;
+            animation: bounce 1s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.05); opacity: 0.9; }
+        }
+
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(5px); }
+        }
+
+        .download-card h2 {
+            font-size: 24px;
+            font-weight: 600;
+            color: #1a1a2e;
+            margin-bottom: 10px;
+        }
+
+        .download-card p {
+            font-size: 14px;
+            color: #6b7280;
+            margin-bottom: 20px;
+        }
+
+        .download-info {
+            font-size: 13px;
+            color: #9ca3af;
+            padding: 12px 20px;
+            background: #f3f4f6;
+            border-radius: 10px;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* Input Mode Tabs */
+        .input-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+
+        .input-tab {
+            padding: 10px 20px;
+            background: #f3f4f6;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            color: #6b7280;
+            transition: all 0.2s;
+        }
+
+        .input-tab.active {
+            background: #667eea;
+            color: white;
+        }
+
+        .input-mode {
+            display: none;
+        }
+
+        .input-mode.active {
+            display: block;
+        }
+
+        /* Upload Area */
+        .upload-area {
+            border: 2px dashed #d1d5db;
+            border-radius: 12px;
+            padding: 40px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 20px;
+        }
+
+        .upload-area:hover {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+
+        .upload-area.dragover {
+            border-color: #667eea;
+            background: #eef2ff;
+        }
+
+        .upload-icon {
+            width: 60px;
+            height: 60px;
+            margin: 0 auto 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .upload-icon svg {
+            width: 30px;
+            height: 30px;
+            color: white;
+        }
+
+        .upload-area h3 {
+            color: #374151;
+            margin-bottom: 8px;
+        }
+
+        .upload-area p {
+            color: #6b7280;
+            font-size: 14px;
+        }
+
+        .file-count {
+            margin-top: 15px;
+            padding: 10px 15px;
+            background: #d1fae5;
+            color: #065f46;
+            border-radius: 8px;
+            font-weight: 500;
+            display: none;
+        }
+
+        .file-count.show {
+            display: inline-block;
+        }
+
+        /* Checkbox Toggle */
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 15px;
+            padding: 12px 16px;
+            background: #f9fafb;
+            border-radius: 8px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: #667eea;
+            cursor: pointer;
+        }
+
+        .checkbox-group label {
+            font-size: 14px;
+            color: #374151;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .checkbox-group .hint {
+            font-size: 12px;
+            color: #6b7280;
+            margin-left: auto;
+        }
+
+        /* Month Section Headers in Results */
+        .month-section {
+            margin-bottom: 30px;
+        }
+
+        .month-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 10px;
+            margin-bottom: 15px;
+        }
+
+        .month-header h3 {
+            margin: 0;
+            font-size: 16px;
+        }
+
+        .month-header .month-count {
+            font-size: 13px;
+            opacity: 0.9;
+        }
     </style>
 </head>
 <body>
@@ -422,17 +753,54 @@
         </div>
 
         <div class="card" id="input-card">
-            <div class="input-row">
+            <!-- Input Mode Tabs -->
+            <div class="input-tabs">
+                <button class="input-tab active" onclick="switchInputMode('upload')">Upload Photos</button>
+                <button class="input-tab" onclick="switchInputMode('folder')">Folder Path (Local)</button>
+            </div>
+
+            <!-- Upload Mode -->
+            <div id="upload-mode" class="input-mode active">
+                <div class="upload-area" id="upload-area" onclick="document.getElementById('file-input').click()">
+                    <div class="upload-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="17 8 12 3 7 8"/>
+                            <line x1="12" y1="3" x2="12" y2="15"/>
+                        </svg>
+                    </div>
+                    <h3>Drop photos here or click to browse</h3>
+                    <p>Supports JPG, PNG, HEIC, WebP</p>
+                    <div class="file-count" id="file-count">0 photos selected</div>
+                </div>
+                <input type="file" id="file-input" multiple accept=".jpg,.jpeg,.png,.heic,.heif,.webp" style="display: none">
+            </div>
+
+            <!-- Folder Mode -->
+            <div id="folder-mode" class="input-mode">
                 <div class="input-group">
                     <label>Folder Path</label>
                     <input type="text" id="folder-path" placeholder="C:\Photos\January" />
                 </div>
+            </div>
+
+            <!-- Organize by Month Toggle -->
+            <div class="checkbox-group">
+                <input type="checkbox" id="organize-by-month" />
+                <label for="organize-by-month">Organize by month (uses EXIF dates)</label>
+                <span class="hint">Groups photos by month, selects best from each</span>
+            </div>
+
+            <!-- Common: Target Count -->
+            <div class="input-row" style="margin-top: 15px;">
                 <div class="input-group small">
                     <label>Target Count</label>
                     <input type="number" id="target" value="40" min="1" max="200" />
                 </div>
+                <div class="input-group" style="flex: 0 0 auto; align-self: flex-end;">
+                    <button class="btn" id="start-btn" onclick="startTest()">Start Test</button>
+                </div>
             </div>
-            <button class="btn" id="start-btn" onclick="startTest()">Start Test</button>
 
             <div class="progress-section" id="progress-section">
                 <div class="progress-bar">
@@ -464,7 +832,31 @@
                 <button class="tab" onclick="showTab('rejected')">Not Selected</button>
             </div>
 
+            <div style="margin: 20px 0;">
+                <button class="btn" onclick="downloadSelected()" style="background: #10b981;">
+                    Download Selected Photos (ZIP)
+                </button>
+            </div>
+
             <div class="photo-grid" id="photo-grid"></div>
+        </div>
+    </div>
+
+    <!-- Download Overlay -->
+    <div id="download-overlay" class="download-overlay hidden">
+        <div class="download-card">
+            <div class="download-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+            </div>
+            <h2>Preparing Download...</h2>
+            <p>Creating ZIP file with your selected photos</p>
+            <div class="download-info">
+                <span id="download-photo-count">0</span> photos
+            </div>
         </div>
     </div>
 
@@ -479,6 +871,13 @@
                 <img class="modal-image" id="modal-image" src="" alt="">
                 <div class="score-grid" id="modal-scores"></div>
                 <div class="embedding-preview" id="modal-embedding"></div>
+
+                <!-- Cluster View Section -->
+                <div class="cluster-view" id="cluster-view" style="display: none;">
+                    <h4 class="cluster-title" id="cluster-title">Cluster Photos</h4>
+                    <p class="cluster-desc">Other photos grouped with this one (sorted by score)</p>
+                    <div class="cluster-photos" id="cluster-photos"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -488,16 +887,175 @@
         let pollInterval = null;
         let resultsData = null;
         let currentTab = 'selected';
+        let currentInputMode = 'upload';
+        let selectedFiles = [];
+
+        // Input mode switching
+        function switchInputMode(mode) {
+            currentInputMode = mode;
+
+            // Update tab buttons
+            document.querySelectorAll('.input-tab').forEach(t => t.classList.remove('active'));
+            document.querySelector(`.input-tab:${mode === 'upload' ? 'first-child' : 'last-child'}`).classList.add('active');
+
+            // Update mode content
+            document.getElementById('upload-mode').classList.toggle('active', mode === 'upload');
+            document.getElementById('folder-mode').classList.toggle('active', mode === 'folder');
+        }
+
+        // File upload handling
+        const uploadArea = document.getElementById('upload-area');
+        const fileInput = document.getElementById('file-input');
+        const fileCountEl = document.getElementById('file-count');
+
+        // Drag and drop
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            handleFiles(e.dataTransfer.files);
+        });
+
+        // File input change
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+        });
+
+        function handleFiles(files) {
+            const validExtensions = ['.jpg', '.jpeg', '.png', '.heic', '.heif', '.webp'];
+            selectedFiles = Array.from(files).filter(f => {
+                const ext = '.' + f.name.split('.').pop().toLowerCase();
+                return validExtensions.includes(ext);
+            });
+
+            if (selectedFiles.length > 0) {
+                fileCountEl.textContent = `${selectedFiles.length} photos selected`;
+                fileCountEl.classList.add('show');
+            } else {
+                fileCountEl.classList.remove('show');
+            }
+        }
 
         async function startTest() {
-            const folderPath = document.getElementById('folder-path').value.trim();
             const target = parseInt(document.getElementById('target').value) || 40;
+            const organizeByMonth = document.getElementById('organize-by-month').checked;
 
-            if (!folderPath) {
-                showError('Please enter a folder path');
-                return;
+            // Validate based on mode
+            if (currentInputMode === 'upload') {
+                if (selectedFiles.length === 0) {
+                    showError('Please select photos to upload');
+                    return;
+                }
+                await startUploadTest(target, organizeByMonth);
+            } else {
+                const folderPath = document.getElementById('folder-path').value.trim();
+                if (!folderPath) {
+                    showError('Please enter a folder path');
+                    return;
+                }
+                await startFolderTest(folderPath, target, organizeByMonth);
             }
+        }
 
+        async function startUploadTest(target, organizeByMonth) {
+            // Reset UI
+            document.getElementById('error-message').style.display = 'none';
+            document.getElementById('results-section').style.display = 'none';
+            document.getElementById('progress-section').style.display = 'block';
+            document.getElementById('start-btn').disabled = true;
+            document.getElementById('progress-fill').style.width = '0%';
+            document.getElementById('progress-text').textContent = 'Initializing upload...';
+
+            try {
+                const CHUNK_SIZE = 50; // Upload 50 files at a time
+                const totalFiles = selectedFiles.length;
+
+                // Initialize upload session
+                const initResponse = await fetch('/test-month/upload-init', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        total_files: totalFiles,
+                        target: target,
+                        organize_by_month: organizeByMonth
+                    })
+                });
+
+                const initData = await initResponse.json();
+                if (initData.error) {
+                    showError(initData.error);
+                    document.getElementById('progress-section').style.display = 'none';
+                    document.getElementById('start-btn').disabled = false;
+                    return;
+                }
+
+                const sessionId = initData.session_id;
+                jobId = initData.job_id;
+
+                // Upload in chunks
+                for (let i = 0; i < totalFiles; i += CHUNK_SIZE) {
+                    const chunk = selectedFiles.slice(i, i + CHUNK_SIZE);
+                    const formData = new FormData();
+
+                    chunk.forEach(file => formData.append('files', file));
+                    formData.append('session_id', sessionId);
+                    formData.append('chunk_index', Math.floor(i / CHUNK_SIZE));
+
+                    const chunkResponse = await fetch('/test-month/upload-chunk', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    const chunkData = await chunkResponse.json();
+                    if (chunkData.error) {
+                        showError(chunkData.error);
+                        document.getElementById('progress-section').style.display = 'none';
+                        document.getElementById('start-btn').disabled = false;
+                        return;
+                    }
+
+                    // Update progress (upload is 0-30%)
+                    const uploaded = Math.min(i + CHUNK_SIZE, totalFiles);
+                    const uploadProgress = (uploaded / totalFiles) * 30;
+                    document.getElementById('progress-fill').style.width = `${uploadProgress}%`;
+                    document.getElementById('progress-text').textContent = `Uploading: ${uploaded}/${totalFiles} photos`;
+                }
+
+                // Complete upload and start processing
+                const completeResponse = await fetch('/test-month/upload-complete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: sessionId })
+                });
+
+                const completeData = await completeResponse.json();
+                if (completeData.error) {
+                    showError(completeData.error);
+                    document.getElementById('progress-section').style.display = 'none';
+                    document.getElementById('start-btn').disabled = false;
+                    return;
+                }
+
+                // Start polling for processing status
+                document.getElementById('progress-text').textContent = 'Processing...';
+                pollInterval = setInterval(pollStatus, 1000);
+
+            } catch (err) {
+                showError('Failed to upload: ' + err.message);
+                document.getElementById('progress-section').style.display = 'none';
+                document.getElementById('start-btn').disabled = false;
+            }
+        }
+
+        async function startFolderTest(folderPath, target, organizeByMonth) {
             // Reset UI
             document.getElementById('error-message').style.display = 'none';
             document.getElementById('results-section').style.display = 'none';
@@ -510,7 +1068,7 @@
                 const response = await fetch('/test-month/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ folder_path: folderPath, target: target })
+                    body: JSON.stringify({ folder_path: folderPath, target: target, organize_by_month: organizeByMonth })
                 });
 
                 const data = await response.json();
@@ -662,30 +1220,95 @@
             const grid = document.getElementById('photo-grid');
             grid.innerHTML = '';
 
-            for (const photo of photos) {
-                const card = document.createElement('div');
-                card.className = 'photo-card';
-                card.onclick = () => openModal(photo);
+            // Check if we should group by month
+            const organizedByMonth = resultsData.organized_by_month || false;
 
-                const scorePercent = (photo.score * 100).toFixed(0);
-                const clusterId = photo.cluster_id !== undefined ? photo.cluster_id : -1;
-                const clusterLabel = clusterId >= 0 ? `C${clusterId}` : 'FB';
-                const category = photo.category || 'unknown';
+            if (organizedByMonth && photos.length > 0) {
+                // Group photos by month
+                const photosByMonth = {};
+                for (const photo of photos) {
+                    const month = photo.month || 'Unknown';
+                    if (!photosByMonth[month]) {
+                        photosByMonth[month] = [];
+                    }
+                    photosByMonth[month].push(photo);
+                }
 
-                card.innerHTML = `
-                    <img src="/test-month/thumbnail/${jobId}/${photo.thumbnail}" alt="${photo.filename}" loading="lazy">
-                    <div class="photo-info">
-                        <div class="photo-score">
-                            <span class="score-badge">${scorePercent}%</span>
-                            <span class="category-badge ${category}">${category}</span>
-                            <span class="cluster-badge">${clusterLabel}</span>
-                        </div>
-                        <div class="photo-filename">${photo.filename}</div>
-                    </div>
-                `;
+                // Month order for sorting
+                const MONTH_ORDER = {
+                    'January': 1, 'February': 2, 'March': 3, 'April': 4,
+                    'May': 5, 'June': 6, 'July': 7, 'August': 8,
+                    'September': 9, 'October': 10, 'November': 11, 'December': 12,
+                    'Unknown': 13
+                };
 
-                grid.appendChild(card);
+                // Sort months
+                const sortedMonths = Object.keys(photosByMonth).sort((a, b) => {
+                    return (MONTH_ORDER[a] || 13) - (MONTH_ORDER[b] || 13);
+                });
+
+                // Render each month section
+                for (const month of sortedMonths) {
+                    const monthPhotos = photosByMonth[month];
+
+                    // Create month section
+                    const monthSection = document.createElement('div');
+                    monthSection.className = 'month-section';
+
+                    // Month header
+                    const header = document.createElement('div');
+                    header.className = 'month-header';
+                    header.innerHTML = `
+                        <h3>${month}</h3>
+                        <span class="month-count">${monthPhotos.length} photo${monthPhotos.length !== 1 ? 's' : ''}</span>
+                    `;
+                    monthSection.appendChild(header);
+
+                    // Photos grid for this month
+                    const monthGrid = document.createElement('div');
+                    monthGrid.className = 'photo-grid';
+                    monthGrid.style.marginBottom = '20px';
+
+                    for (const photo of monthPhotos) {
+                        const card = createPhotoCard(photo);
+                        monthGrid.appendChild(card);
+                    }
+
+                    monthSection.appendChild(monthGrid);
+                    grid.appendChild(monthSection);
+                }
+            } else {
+                // Original flat rendering
+                for (const photo of photos) {
+                    const card = createPhotoCard(photo);
+                    grid.appendChild(card);
+                }
             }
+        }
+
+        function createPhotoCard(photo) {
+            const card = document.createElement('div');
+            card.className = 'photo-card';
+            card.onclick = () => openModal(photo);
+
+            const scorePercent = (photo.score * 100).toFixed(0);
+            const clusterId = photo.cluster_id !== undefined ? photo.cluster_id : -1;
+            const clusterLabel = clusterId >= 0 ? `C${clusterId}` : 'FB';
+            const category = photo.category || 'unknown';
+
+            card.innerHTML = `
+                <img src="/test-month/thumbnail/${jobId}/${photo.thumbnail}" alt="${photo.filename}" loading="lazy">
+                <div class="photo-info">
+                    <div class="photo-score">
+                        <span class="score-badge">${scorePercent}%</span>
+                        <span class="category-badge ${category}">${category}</span>
+                        <span class="cluster-badge">${clusterLabel}</span>
+                    </div>
+                    <div class="photo-filename">${photo.filename}</div>
+                </div>
+            `;
+
+            return card;
         }
 
         function openModal(photo) {
@@ -760,11 +1383,118 @@
             }
             document.getElementById('modal-embedding').textContent = embeddingStr;
 
+            // Render cluster photos
+            renderClusterPhotos(photo, clusterId);
+
             document.getElementById('photo-modal').classList.add('show');
+        }
+
+        function renderClusterPhotos(currentPhoto, clusterId) {
+            const clusterView = document.getElementById('cluster-view');
+            const clusterTitle = document.getElementById('cluster-title');
+            const clusterPhotosDiv = document.getElementById('cluster-photos');
+
+            if (!resultsData) {
+                clusterView.style.display = 'none';
+                return;
+            }
+
+            // Get all photos in the same cluster
+            const clusterPhotos = [];
+
+            // Add selected photos with same cluster_id
+            if (resultsData.selected) {
+                for (const p of resultsData.selected) {
+                    if (p.cluster_id === clusterId && clusterId >= 0) {
+                        clusterPhotos.push({ ...p, isSelected: true });
+                    }
+                }
+            }
+
+            // Add rejected photos with same cluster_id
+            if (resultsData.rejected) {
+                for (const p of resultsData.rejected) {
+                    if (p.cluster_id === clusterId && clusterId >= 0) {
+                        clusterPhotos.push({ ...p, isSelected: false });
+                    }
+                }
+            }
+
+            // If no cluster or only one photo, hide cluster view
+            if (clusterId < 0 || clusterPhotos.length <= 1) {
+                clusterView.style.display = 'none';
+                return;
+            }
+
+            clusterView.style.display = 'block';
+
+            // Sort by score (highest first)
+            clusterPhotos.sort((a, b) => (b.score || 0) - (a.score || 0));
+
+            // Update title
+            const selectedCount = clusterPhotos.filter(p => p.isSelected).length;
+            const rejectedCount = clusterPhotos.length - selectedCount;
+            clusterTitle.textContent = `Cluster #${clusterId} (${clusterPhotos.length} photos: ${selectedCount} selected, ${rejectedCount} rejected)`;
+
+            // Render photos
+            clusterPhotosDiv.innerHTML = '';
+
+            for (const p of clusterPhotos) {
+                const isCurrent = p.filename === currentPhoto.filename;
+                const scorePercent = p.score ? (p.score * 100).toFixed(0) : '0';
+
+                const div = document.createElement('div');
+                div.className = `cluster-photo ${p.isSelected ? 'selected' : 'rejected'} ${isCurrent ? 'current' : ''}`;
+                div.onclick = () => openModal(p);
+
+                div.innerHTML = `
+                    <img src="/test-month/thumbnail/${jobId}/${p.thumbnail}" alt="${p.filename}">
+                    <div class="cluster-photo-score">${scorePercent}%</div>
+                    <div class="cluster-photo-badge">${p.isSelected ? '✓' : '✗'}</div>
+                `;
+
+                clusterPhotosDiv.appendChild(div);
+            }
         }
 
         function closeModal() {
             document.getElementById('photo-modal').classList.remove('show');
+        }
+
+        async function downloadSelected() {
+            if (!jobId) {
+                alert('No results to download. Please run a test first.');
+                return;
+            }
+
+            // Show download overlay
+            const overlay = document.getElementById('download-overlay');
+            const photoCount = document.getElementById('download-photo-count');
+            photoCount.textContent = resultsData?.selected?.length || 0;
+            overlay.classList.remove('hidden');
+
+            try {
+                const response = await fetch(`/test-month/download/${jobId}`);
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Download failed');
+                }
+
+                // Trigger actual download
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `selected_photos_${jobId}.zip`;
+                a.click();
+                window.URL.revokeObjectURL(url);
+
+            } catch (err) {
+                alert('Download failed: ' + err.message);
+            } finally {
+                overlay.classList.add('hidden');
+            }
         }
 
         function showError(message) {

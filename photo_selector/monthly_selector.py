@@ -1096,30 +1096,26 @@ class MonthlyPhotoSelector:
             print(f"  [!] No photos in this month, skipping...")
             return [], {}
 
-        # Step 1: Remove exact/near duplicates first
-        print(f"\n  [Step 1] Removing duplicates (threshold: {self.duplicate_threshold})...")
-        unique_photos = self.remove_duplicates(photos, embeddings)
-        duplicates_removed = len(photos) - len(unique_photos)
-        print(f"  Duplicates removed: {duplicates_removed}")
-        print(f"  Unique photos: {len(unique_photos)}")
+        if len(photos) <= target:
+            print(f"  [!] Fewer photos than target, taking all {len(photos)}")
+            return photos, self._get_category_breakdown(photos)
 
-        if len(unique_photos) <= target:
-            print(f"  [!] Fewer photos than target, taking all {len(unique_photos)}")
-            return unique_photos, self._get_category_breakdown(unique_photos)
-
-        # Step 2: Get embeddings array for uniqueness scoring
-        print(f"\n  [Step 2] Preparing embeddings for scoring...")
+        # Step 1: Get embeddings array for uniqueness scoring
+        # NOTE: We no longer remove duplicates before clustering - HDBSCAN needs to see
+        # all similar photos to create proper clusters. Duplicate removal now happens
+        # implicitly via the similarity check in select_hybrid_hdbscan.
+        print(f"\n  [Step 1] Preparing embeddings for scoring...")
         month_embeddings = []
-        for photo in unique_photos:
+        for photo in photos:
             emb = embeddings.get(photo['filename'])
             if emb is not None:
                 month_embeddings.append(emb)
         month_embeddings = np.array(month_embeddings) if month_embeddings else None
         print(f"  Embeddings ready: {len(month_embeddings) if month_embeddings is not None else 0}")
 
-        # Step 3: Score all photos
-        print(f"\n  [Step 3] Scoring photos (face quality, aesthetic, emotional, uniqueness)...")
-        scored_photos = self.score_photos(unique_photos, embeddings, month_embeddings)
+        # Step 2: Score all photos
+        print(f"\n  [Step 2] Scoring photos (face quality, aesthetic, emotional, uniqueness)...")
+        scored_photos = self.score_photos(photos, embeddings, month_embeddings)
 
         # Show top 10 scores
         sorted_by_score = sorted(scored_photos, key=lambda x: x.get('total', 0), reverse=True)
@@ -1127,16 +1123,16 @@ class MonthlyPhotoSelector:
         for i, p in enumerate(sorted_by_score[:10]):
             print(f"    {i+1:2}. {p['filename'][:30]:30} | Score: {p.get('total', 0):.3f} | Face: {p.get('face_quality', 0):.2f} | Cat: {p.get('category', '?')}")
 
-        # Step 4: Show category distribution (for info only, not used in selection)
-        print(f"\n  [Step 4] Category distribution (display only):")
+        # Step 3: Show category distribution (for info only, not used in selection)
+        print(f"\n  [Step 3] Category distribution (display only):")
         by_category = defaultdict(int)
         for photo in scored_photos:
             by_category[photo.get('category', 'unknown')] += 1
         for cat, count in sorted(by_category.items(), key=lambda x: -x[1]):
             print(f"    - {cat:15}: {count:4} photos")
 
-        # Step 5: Hybrid HDBSCAN + quality selection (replaces greedy-diverse)
-        print(f"\n  [Step 5] Hybrid HDBSCAN + quality selection...")
+        # Step 4: Hybrid HDBSCAN + quality selection
+        print(f"\n  [Step 4] Hybrid HDBSCAN + quality selection...")
         selected = self.select_hybrid_hdbscan(scored_photos, embeddings, target, month_name)
 
         # Final summary for this month

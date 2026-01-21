@@ -26,3 +26,5 @@ tqdm>=4.66.0
 # CLIP
 ftfy
 regex
+git+https://github.com/openai/CLIP.git
+    

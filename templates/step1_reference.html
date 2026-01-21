@@ -451,6 +451,55 @@
                 width: 100%;
             }
         }
+
+        /* Loading Overlay */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s, visibility 0.3s;
+        }
+
+        .loading-overlay.show {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            color: white;
+            font-size: 18px;
+            font-weight: 500;
+        }
+
+        .loading-subtext {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            margin-top: 8px;
+        }
     </style>
 </head>
 <body>
@@ -595,11 +644,27 @@
             uploadReferencePhotos(e.dataTransfer.files);
         });
 
+        let modelLoaded = false; // Track if model has been loaded
+
         async function uploadReferencePhotos(files) {
             const formData = new FormData();
             for (let file of files) {
                 formData.append('files', file);
             }
+
+            // Show loading overlay with appropriate message
+            const loadingOverlay = document.getElementById('loading-overlay');
+            const loadingText = document.getElementById('loading-text');
+            const loadingSubtext = document.getElementById('loading-subtext');
+
+            if (modelLoaded) {
+                loadingText.textContent = 'Detecting face...';
+                loadingSubtext.textContent = 'Analyzing your photo';
+            } else {
+                loadingText.textContent = 'Loading AI model...';
+                loadingSubtext.textContent = 'First load downloads the model (~120MB)';
+            }
+            loadingOverlay.classList.add('show');
 
             try {
                 const response = await fetch('/upload_reference', {
@@ -608,6 +673,12 @@
                 });
 
                 const data = await response.json();
+
+                // Hide loading overlay
+                loadingOverlay.classList.remove('show');
+
+                // Model is now loaded for future uploads
+                modelLoaded = true;
 
                 if (data.error) {
                     alert('Error: ' + data.error);
@@ -631,6 +702,8 @@
                 updateUI();
 
             } catch (error) {
+                // Hide loading overlay on error
+                loadingOverlay.classList.remove('show');
                 console.error('Upload error:', error);
                 alert('Upload failed. Please try again.');
             }
@@ -709,5 +782,12 @@
         // Initialize
         checkExistingReferences();
     </script>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="loading-spinner"></div>
+        <div id="loading-text" class="loading-text">Loading AI model...</div>
+        <div id="loading-subtext" class="loading-subtext">First load downloads the model (~120MB)</div>
+    </div>
 </body>
 </html>

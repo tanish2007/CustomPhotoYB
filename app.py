@@ -60,6 +60,9 @@ processing_jobs = {}
 # Store face matchers for sessions (reuse to avoid reloading model)
 face_matchers = {}
 
+# Store chunked upload sessions
+upload_sessions = {}
+
 
 # Error handler for large uploads
 @app.errorhandler(RequestEntityTooLarge)
@@ -202,7 +205,7 @@ def process_photos_face_filter_only(job_id, upload_dir, session_id=None):
             print(f"  - Match rate: {match_rate:.1%}")
 
         processing_jobs[job_id]['progress'] = 70
-        processing_jobs[job_id]['message'] = 'Creating thumbnails...'
+        processing_jobs[job_id]['message'] = f'Creating thumbnails: 0/{matched_count}'
 
         print(f"[Job {job_id}] Creating thumbnails for {matched_count} matched photos...")
 
@@ -224,10 +227,11 @@ def process_photos_face_filter_only(job_id, upload_dir, session_id=None):
                 'face_bboxes': match.get('face_bboxes', [])  # Cached face locations for scoring
             })
 
-            # Progress update every 10 photos
-            if (i + 1) % 10 == 0:
+            # Progress update every 10 photos or on last photo
+            if (i + 1) % 10 == 0 or (i + 1) == matched_count:
                 progress = 70 + int((i / matched_count) * 25)
                 processing_jobs[job_id]['progress'] = progress
+                processing_jobs[job_id]['message'] = f'Creating thumbnails: {i + 1}/{matched_count}'
                 print(f"[Job {job_id}] Thumbnails created: {i + 1}/{matched_count}")
 
         # Sort by face match score (highest first)
@@ -599,12 +603,16 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
                     photo['rejection_reason'] = 'Not selected for month quota'
                     rejected_photos.append(photo)
 
-        processing_jobs[job_id]['progress'] = 85
-        processing_jobs[job_id]['message'] = 'Creating thumbnails...'
-
         # Create thumbnails directory
         thumbs_dir = os.path.join(upload_dir, 'thumbnails')
         os.makedirs(thumbs_dir, exist_ok=True)
+
+        # Calculate total thumbnails to create
+        total_thumbnails = len(selected_photos) + len(rejected_photos)
+        thumbnails_created = 0
+
+        processing_jobs[job_id]['progress'] = 85
+        processing_jobs[job_id]['message'] = f'Creating thumbnails: 0/{total_thumbnails}'
 
         # Build final results structure
         results = {
@@ -637,6 +645,11 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
 
             create_thumbnail(os.path.join(upload_dir, filename), thumb_path)
 
+            # Update thumbnail counter
+            thumbnails_created += 1
+            if thumbnails_created % 10 == 0 or thumbnails_created == total_thumbnails:
+                processing_jobs[job_id]['message'] = f'Creating thumbnails: {thumbnails_created}/{total_thumbnails}'
+
             # Get embedding for this photo (convert to list for JSON serialization)
             photo_embedding = embeddings.get(filename)
             embedding_list = photo_embedding.tolist() if photo_embedding is not None else None
@@ -667,6 +680,11 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
             thumb_path = os.path.join(thumbs_dir, thumb_name)
 
             create_thumbnail(os.path.join(upload_dir, filename), thumb_path)
+
+            # Update thumbnail counter
+            thumbnails_created += 1
+            if thumbnails_created % 10 == 0 or thumbnails_created == total_thumbnails:
+                processing_jobs[job_id]['message'] = f'Creating thumbnails: {thumbnails_created}/{total_thumbnails}'
 
             # Simple rejection reason
             reason = "Better photos selected"
@@ -1036,6 +1054,169 @@ def get_reference_thumbnail(filename):
     return send_from_directory(ref_dir, filename)
 
 
+# ============== CHUNKED UPLOAD ENDPOINTS ==============
+# These endpoints allow uploading large batches of photos in smaller chunks
+# to avoid 413 (Request Entity Too Large) errors on Hugging Face Spaces
+
+@app.route('/upload_init', methods=['POST'])
+def upload_init():
+    """Initialize a chunked upload session."""
+    data = request.json
+    total_files = data.get('total_files', 0)
+    quality_mode = data.get('quality_mode', 'balanced')
+    similarity_threshold = data.get('similarity_threshold', 0.92)
+
+    # Create a unique session ID for this upload
+    upload_session_id = str(uuid.uuid4())[:8]
+    upload_dir = os.path.join(UPLOAD_FOLDER, upload_session_id)
+    os.makedirs(upload_dir, exist_ok=True)
+
+    # Get face matcher session
+    face_session_id = session.get('session_id')
+
+    # Store session info
+    upload_sessions[upload_session_id] = {
+        'upload_dir': upload_dir,
+        'total_files': total_files,
+        'uploaded_files': [],
+        'quality_mode': quality_mode,
+        'similarity_threshold': similarity_threshold,
+        'face_session_id': face_session_id,
+        'created_at': time.time()
+    }
+
+    print(f"\n[Upload Session {upload_session_id}] Initialized for {total_files} files")
+
+    return jsonify({
+        'session_id': upload_session_id,
+        'message': 'Upload session initialized'
+    })
+
+
+@app.route('/upload_chunk', methods=['POST'])
+def upload_chunk():
+    """Handle a chunk of files in a chunked upload."""
+    if 'files' not in request.files:
+        return jsonify({'error': 'No files provided'}), 400
+
+    session_id = request.form.get('session_id')
+    if not session_id or session_id not in upload_sessions:
+        return jsonify({'error': 'Invalid upload session'}), 400
+
+    upload_info = upload_sessions[session_id]
+    upload_dir = upload_info['upload_dir']
+
+    files = request.files.getlist('files')
+    saved_count = 0
+
+    for file in files:
+        if file and allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            # Handle duplicate filenames
+            base, ext = os.path.splitext(filename)
+            counter = 1
+            while os.path.exists(os.path.join(upload_dir, filename)):
+                filename = f"{base}_{counter}{ext}"
+                counter += 1
+
+            file.save(os.path.join(upload_dir, filename))
+            upload_info['uploaded_files'].append(filename)
+            saved_count += 1
+
+    chunk_index = request.form.get('chunk_index', '?')
+    print(f"[Upload Session {session_id}] Chunk {chunk_index}: saved {saved_count} files (total: {len(upload_info['uploaded_files'])})")
+
+    return jsonify({
+        'success': True,
+        'saved': saved_count,
+        'total_uploaded': len(upload_info['uploaded_files'])
+    })
+
+
+@app.route('/upload_complete', methods=['POST'])
+def upload_complete():
+    """Complete a chunked upload and start processing."""
+    data = request.json
+    session_id = data.get('session_id')
+
+    if not session_id or session_id not in upload_sessions:
+        return jsonify({'error': 'Invalid upload session'}), 400
+
+    upload_info = upload_sessions[session_id]
+    upload_dir = upload_info['upload_dir']
+    saved_files = upload_info['uploaded_files']
+    quality_mode = upload_info['quality_mode']
+    similarity_threshold = upload_info['similarity_threshold']
+    face_session_id = upload_info['face_session_id']
+
+    if not saved_files:
+        shutil.rmtree(upload_dir)
+        del upload_sessions[session_id]
+        return jsonify({'error': 'No valid image files uploaded'}), 400
+
+    # Check if we have reference photos loaded
+    has_references = False
+    ref_count = 0
+    if face_session_id and face_session_id in face_matchers:
+        ref_count = face_matchers[face_session_id].get_reference_count()
+        has_references = ref_count > 0
+
+    # Create job (use same session_id as job_id for simplicity)
+    job_id = session_id
+
+    # Initialize job
+    processing_jobs[job_id] = {
+        'status': 'queued',
+        'progress': 30,  # Start at 30% since upload is done
+        'message': 'Starting AI processing...',
+        'total_files': len(saved_files),
+        'total_uploaded': len(saved_files),
+        'upload_dir': upload_dir,
+        'session_id': face_session_id,
+        'has_reference_photos': has_references,
+        'reference_count': ref_count,
+        'quality_mode': quality_mode,
+        'similarity_threshold': similarity_threshold,
+        'results': None
+    }
+
+    # Clean up upload session
+    del upload_sessions[session_id]
+
+    # Decide which processing mode to use
+    if has_references:
+        print(f"\n[Job {job_id}] NEW JOB (Chunked Upload) - Face Filtering Mode")
+        print(f"  - Files uploaded: {len(saved_files)}")
+        print(f"  - Reference photos: {ref_count}")
+        thread = threading.Thread(
+            target=process_photos_face_filter_only,
+            args=(job_id, upload_dir, face_session_id)
+        )
+        message = f'Scanning {len(saved_files)} photos to find your child using {ref_count} reference(s)...'
+    else:
+        print(f"\n[Job {job_id}] NEW JOB (Chunked Upload) - No Face Filtering")
+        print(f"  - Files uploaded: {len(saved_files)}")
+        thread = threading.Thread(
+            target=process_photos_quality_selection,
+            args=(job_id, upload_dir, quality_mode, similarity_threshold)
+        )
+        message = f'Selecting best photos from {len(saved_files)} images...'
+
+    thread.daemon = True
+    thread.start()
+
+    processing_jobs[job_id]['message'] = message
+
+    return jsonify({
+        'job_id': job_id,
+        'message': message,
+        'total_files': len(saved_files)
+    })
+
+
+# ============== END CHUNKED UPLOAD ENDPOINTS ==============
+
+
 @app.route('/upload', methods=['POST'])
 def upload_files():
     """Handle file uploads and start processing."""
@@ -1366,13 +1547,31 @@ def download_selected(job_id):
     if job['status'] != 'complete':
         return jsonify({'error': 'Processing not complete'}), 400
 
+    results = job.get('results', {})
+    selected = results.get('selected', [])
+    upload_dir = job.get('upload_dir', '')
+
+    if not selected:
+        return jsonify({'error': 'No selected photos found'}), 404
+
+    if not upload_dir:
+        return jsonify({'error': 'Upload directory not found'}), 404
+
     # Create zip file
     memory_file = BytesIO()
+    files_added = 0
     with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for photo in job['results']['selected']:
-            photo_path = os.path.join(job['upload_dir'], photo['filename'])
+        for photo in selected:
+            filename = photo.get('filename', '')
+            photo_path = os.path.join(upload_dir, filename)
             if os.path.exists(photo_path):
-                zf.write(photo_path, photo['filename'])
+                zf.write(photo_path, filename)
+                files_added += 1
+            else:
+                print(f"[Download] File not found: {photo_path}")
+
+    if files_added == 0:
+        return jsonify({'error': f'No files found in {upload_dir}. Files may have been cleaned up.'}), 404
 
     memory_file.seek(0)
     return send_file(
@@ -1671,6 +1870,7 @@ def test_month_start():
     data = request.get_json()
     folder_path = data.get('folder_path', '').strip()
     target = int(data.get('target', 40))
+    organize_by_month = data.get('organize_by_month', False)
 
     if not folder_path:
         return jsonify({'error': 'No folder path provided'}), 400
@@ -1696,18 +1896,19 @@ def test_month_start():
     processing_jobs[job_id] = {
         'status': 'processing',
         'progress': 0,
-        'message': 'Starting single month test...',
+        'message': 'Starting test...',
         'folder_path': folder_path,
         'thumb_dir': thumb_dir,
         'target': target,
         'total_files': len(image_files),
-        'results': None
+        'results': None,
+        'organize_by_month': organize_by_month
     }
 
     # Start processing in background
     thread = threading.Thread(
         target=process_test_month,
-        args=(job_id, folder_path, target, thumb_dir)
+        args=(job_id, folder_path, target, thumb_dir, organize_by_month)
     )
     thread.start()
 
@@ -1715,16 +1916,222 @@ def test_month_start():
         'job_id': job_id,
         'total_photos': len(image_files),
         'target': target,
+        'organize_by_month': organize_by_month,
         'message': f'Processing {len(image_files)} photos...'
     })
 
 
-def process_test_month(job_id, folder_path, target, thumb_dir):
-    """Process a single month folder for testing with category-aware selection."""
+@app.route('/test-month/upload', methods=['POST'])
+def test_month_upload():
+    """Handle uploaded photos for test-month (for HuggingFace deployment)."""
+    if 'photos' not in request.files:
+        return jsonify({'error': 'No photos uploaded'}), 400
+
+    files = request.files.getlist('photos')
+    target = int(request.form.get('target', 40))
+    organize_by_month = request.form.get('organize_by_month', 'false').lower() == 'true'
+
+    if not files or len(files) == 0:
+        return jsonify({'error': 'No photos uploaded'}), 400
+
+    # Filter valid image files
+    extensions = {'.jpg', '.jpeg', '.png', '.heic', '.heif', '.webp'}
+    valid_files = [f for f in files if f.filename and
+                   os.path.splitext(f.filename.lower())[1] in extensions]
+
+    if not valid_files:
+        return jsonify({'error': 'No valid image files uploaded'}), 400
+
+    # Create job and upload directory
+    job_id = str(uuid.uuid4())[:8]
+    upload_dir = os.path.join(UPLOAD_FOLDER, job_id, 'photos')
+    thumb_dir = os.path.join(UPLOAD_FOLDER, job_id, 'thumbnails')
+    os.makedirs(upload_dir, exist_ok=True)
+    os.makedirs(thumb_dir, exist_ok=True)
+
+    # Save uploaded files
+    saved_files = []
+    for f in valid_files:
+        filename = secure_filename(f.filename)
+        # Handle duplicate filenames
+        base, ext = os.path.splitext(filename)
+        counter = 1
+        while os.path.exists(os.path.join(upload_dir, filename)):
+            filename = f"{base}_{counter}{ext}"
+            counter += 1
+
+        filepath = os.path.join(upload_dir, filename)
+        f.save(filepath)
+        saved_files.append(filename)
+
+    processing_jobs[job_id] = {
+        'status': 'processing',
+        'progress': 0,
+        'message': 'Starting test...',
+        'folder_path': upload_dir,  # Use upload dir as folder path
+        'thumb_dir': thumb_dir,
+        'target': target,
+        'total_files': len(saved_files),
+        'results': None,
+        'is_upload': True,
+        'organize_by_month': organize_by_month
+    }
+
+    # Start processing in background
+    thread = threading.Thread(
+        target=process_test_month,
+        args=(job_id, upload_dir, target, thumb_dir, organize_by_month)
+    )
+    thread.start()
+
+    return jsonify({
+        'job_id': job_id,
+        'total_photos': len(saved_files),
+        'target': target,
+        'organize_by_month': organize_by_month,
+        'message': f'Processing {len(saved_files)} uploaded photos...'
+    })
+
+
+@app.route('/test-month/upload-init', methods=['POST'])
+def test_month_upload_init():
+    """Initialize chunked upload for test-month."""
+    data = request.json
+    total_files = data.get('total_files', 0)
+    target = data.get('target', 40)
+    organize_by_month = data.get('organize_by_month', False)
+
+    job_id = str(uuid.uuid4())[:8]
+    upload_dir = os.path.join(UPLOAD_FOLDER, job_id, 'photos')
+    thumb_dir = os.path.join(UPLOAD_FOLDER, job_id, 'thumbnails')
+    os.makedirs(upload_dir, exist_ok=True)
+    os.makedirs(thumb_dir, exist_ok=True)
+
+    # Store upload session
+    session_id = f"test_{job_id}"
+    upload_sessions[session_id] = {
+        'job_id': job_id,
+        'upload_dir': upload_dir,
+        'thumb_dir': thumb_dir,
+        'target': target,
+        'organize_by_month': organize_by_month,
+        'total_files': total_files,
+        'uploaded_files': []
+    }
+
+    print(f"[Test-Month Upload {job_id}] Initialized for {total_files} files")
+
+    return jsonify({
+        'session_id': session_id,
+        'job_id': job_id
+    })
+
+
+@app.route('/test-month/upload-chunk', methods=['POST'])
+def test_month_upload_chunk():
+    """Handle a chunk of files for test-month."""
+    session_id = request.form.get('session_id')
+    if not session_id or session_id not in upload_sessions:
+        return jsonify({'error': 'Invalid session'}), 400
+
+    session_data = upload_sessions[session_id]
+    upload_dir = session_data['upload_dir']
+    files = request.files.getlist('files')
+
+    extensions = {'.jpg', '.jpeg', '.png', '.heic', '.heif', '.webp'}
+    saved_count = 0
+
+    for f in files:
+        if f and f.filename:
+            ext = os.path.splitext(f.filename.lower())[1]
+            if ext in extensions:
+                filename = secure_filename(f.filename)
+                # Handle duplicate filenames
+                base, ext = os.path.splitext(filename)
+                counter = 1
+                while os.path.exists(os.path.join(upload_dir, filename)):
+                    filename = f"{base}_{counter}{ext}"
+                    counter += 1
+
+                f.save(os.path.join(upload_dir, filename))
+                session_data['uploaded_files'].append(filename)
+                saved_count += 1
+
+    chunk_index = request.form.get('chunk_index', '?')
+    print(f"[Test-Month Upload {session_data['job_id']}] Chunk {chunk_index}: saved {saved_count} files (total: {len(session_data['uploaded_files'])})")
+
+    return jsonify({
+        'uploaded': len(session_data['uploaded_files']),
+        'total': session_data['total_files']
+    })
+
+
+@app.route('/test-month/upload-complete', methods=['POST'])
+def test_month_upload_complete():
+    """Complete chunked upload and start processing for test-month."""
+    data = request.json
+    session_id = data.get('session_id')
+
+    if not session_id or session_id not in upload_sessions:
+        return jsonify({'error': 'Invalid session'}), 400
+
+    session_data = upload_sessions[session_id]
+    job_id = session_data['job_id']
+    upload_dir = session_data['upload_dir']
+    thumb_dir = session_data['thumb_dir']
+    target = session_data['target']
+    organize_by_month = session_data['organize_by_month']
+    saved_files = session_data['uploaded_files']
+
+    # Clean up session
+    del upload_sessions[session_id]
+
+    if not saved_files:
+        return jsonify({'error': 'No valid image files uploaded'}), 400
+
+    print(f"[Test-Month Upload {job_id}] Complete: {len(saved_files)} files, starting processing...")
+
+    # Create processing job
+    processing_jobs[job_id] = {
+        'status': 'processing',
+        'progress': 0,
+        'message': 'Starting test...',
+        'folder_path': upload_dir,
+        'thumb_dir': thumb_dir,
+        'target': target,
+        'total_files': len(saved_files),
+        'results': None,
+        'is_upload': True,
+        'organize_by_month': organize_by_month
+    }
+
+    # Start processing in background
+    thread = threading.Thread(
+        target=process_test_month,
+        args=(job_id, upload_dir, target, thumb_dir, organize_by_month)
+    )
+    thread.start()
+
+    return jsonify({
+        'job_id': job_id,
+        'total_photos': len(saved_files),
+        'target': target,
+        'organize_by_month': organize_by_month,
+        'message': f'Processing {len(saved_files)} uploaded photos...'
+    })
+
+
+def process_test_month(job_id, folder_path, target, thumb_dir, organize_by_month=False):
+    """Process photos for testing with category-aware selection.
+
+    If organize_by_month is True, groups photos by EXIF date and runs
+    selection per month (same as main app Step 4).
+    """
     try:
         from photo_selector.monthly_selector import MonthlyPhotoSelector, CategoryDetector
         from photo_selector.embeddings import PhotoEmbedder
         from photo_selector.scoring import PhotoScorer
+        from datetime import datetime
 
         job = processing_jobs[job_id]
 
@@ -1790,8 +2197,70 @@ def process_test_month(job_id, folder_path, target, thumb_dir):
         job['progress'] = 70
 
         # Step 4: Run category-aware HDBSCAN selection
-        job['message'] = 'Running category-aware clustering and selection...'
-        selected = selector.select_hybrid_hdbscan(scored_photos, embeddings, target=target)
+        if organize_by_month:
+            # Group photos by month using EXIF dates
+            job['message'] = 'Grouping photos by month...'
+
+            # Month names for mapping
+            MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
+                          'July', 'August', 'September', 'October', 'November', 'December']
+
+            photos_by_month = {}
+            for photo in scored_photos:
+                ts = photo.get('timestamp')
+                if ts:
+                    dt = datetime.fromtimestamp(ts)
+                    month_name = MONTH_NAMES[dt.month - 1]
+                else:
+                    month_name = 'Unknown'
+
+                photo['month'] = month_name
+                if month_name not in photos_by_month:
+                    photos_by_month[month_name] = []
+                photos_by_month[month_name].append(photo)
+
+            # Calculate target per month (proportional allocation)
+            total_photos = len(scored_photos)
+            selected = []
+            month_stats = []
+
+            for month_name, month_photos in photos_by_month.items():
+                # Proportional target for this month
+                month_proportion = len(month_photos) / total_photos
+                month_target = max(1, int(target * month_proportion))
+
+                job['message'] = f'Processing {month_name} ({len(month_photos)} photos)...'
+
+                # Get embeddings for this month's photos
+                month_embeddings = {p['filename']: embeddings.get(p['filename']) for p in month_photos}
+
+                # Run selection for this month
+                month_selected = selector.select_hybrid_hdbscan(month_photos, month_embeddings, target=month_target)
+
+                # Add month info to each selected photo
+                for photo in month_selected:
+                    photo['month'] = month_name
+
+                selected.extend(month_selected)
+
+                month_stats.append({
+                    'month': month_name,
+                    'total_photos': len(month_photos),
+                    'selected': len(month_selected),
+                    'target': month_target
+                })
+
+            print(f"[Test Month {job_id}] Organized by month: {len(photos_by_month)} months, {len(selected)} total selected")
+        else:
+            # Single batch selection (original behavior)
+            job['message'] = 'Running category-aware clustering and selection...'
+            selected = selector.select_hybrid_hdbscan(scored_photos, embeddings, target=target)
+            # Add 'Unknown' month to all photos when not organized
+            for photo in selected:
+                photo['month'] = 'Unknown'
+            for photo in scored_photos:
+                photo['month'] = 'Unknown'
+            month_stats = []
 
         job['progress'] = 85
         job['message'] = 'Creating thumbnails...'
@@ -1814,7 +2283,6 @@ def process_test_month(job_id, folder_path, target, thumb_dir):
             ts = photo.get('timestamp')
             datetime_str = ''
             if ts:
-                from datetime import datetime
                 dt = datetime.fromtimestamp(ts)
                 datetime_str = dt.strftime('%Y-%m-%d %H:%M:%S')
 
@@ -1835,7 +2303,8 @@ def process_test_month(job_id, folder_path, target, thumb_dir):
                 'event_id': photo.get('event_id', -1),
                 'selection_reason': photo.get('selection_reason', ''),
                 'datetime': datetime_str,
-                'embedding': embedding_list
+                'embedding': embedding_list,
+                'month': photo.get('month', 'Unknown')
             })
 
         # Build rejected list
@@ -1875,7 +2344,8 @@ def process_test_month(job_id, folder_path, target, thumb_dir):
                     'embedding': embedding_list,
                     'max_similarity': float(photo.get('max_similarity', 0)),
                     'selection_reason': photo.get('rejection_reason', 'Not selected'),
-                    'datetime': datetime_str
+                    'datetime': datetime_str,
+                    'month': photo.get('month', 'Unknown')
                 })
 
         # Sort results
@@ -1905,7 +2375,9 @@ def process_test_month(job_id, folder_path, target, thumb_dir):
                 'target': target
             },
             'cluster_distribution': cluster_counts,
-            'category_distribution': category_counts
+            'category_distribution': category_counts,
+            'organized_by_month': organize_by_month,
+            'month_stats': month_stats
         }
 
         job['status'] = 'complete'
@@ -1915,6 +2387,9 @@ def process_test_month(job_id, folder_path, target, thumb_dir):
         print(f"\n[Test Month {job_id}] Complete!")
         print(f"  - Total: {len(photo_paths)}")
         print(f"  - Selected: {len(selected_results)}")
+        print(f"  - Organized by month: {organize_by_month}")
+        if month_stats:
+            print(f"  - Month stats: {month_stats}")
         print(f"  - Clusters: {cluster_counts}")
         print(f"  - Categories: {category_counts}")
 
@@ -1959,6 +2434,53 @@ def test_month_thumbnail(job_id, filename):
     return send_from_directory(thumb_dir, filename)
 
 
+@app.route('/test-month/download/<job_id>')
+def test_month_download(job_id):
+    """Download selected photos from test-month as ZIP."""
+    import zipfile
+    from io import BytesIO
+
+    if job_id not in processing_jobs:
+        return jsonify({'error': 'Job not found'}), 404
+
+    job = processing_jobs[job_id]
+    if job['status'] != 'complete':
+        return jsonify({'error': 'Processing not complete'}), 400
+
+    results = job.get('results', {})
+    selected = results.get('selected', [])
+    folder_path = job.get('folder_path', '')
+
+    if not selected:
+        return jsonify({'error': 'No selected photos'}), 404
+
+    if not folder_path:
+        return jsonify({'error': 'Folder path not found'}), 404
+
+    # Create zip file
+    memory_file = BytesIO()
+    files_added = 0
+    with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for photo in selected:
+            filename = photo.get('filename', '')
+            # Build full path from folder_path + filename
+            photo_path = os.path.join(folder_path, filename)
+            if os.path.exists(photo_path):
+                zf.write(photo_path, filename)
+                files_added += 1
+
+    if files_added == 0:
+        return jsonify({'error': 'No files could be added to ZIP'}), 404
+
+    memory_file.seek(0)
+    return send_file(
+        memory_file,
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name=f'test_selected_{job_id}.zip'
+    )
+
+
 if __name__ == '__main__':
     print("""
     ============================================
@@ -1971,4 +2493,7 @@ if __name__ == '__main__':
         TEST: /test-month for single folder testing
     ============================================
     """)
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Use port 7860 for Hugging Face Spaces, 5000 for local
+    import os
+    port = int(os.environ.get('PORT', 7860))
+    app.run(debug=False, host='0.0.0.0', port=port)

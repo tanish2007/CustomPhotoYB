@@ -1017,27 +1017,80 @@
                     return;
                 }
 
-                // Upload files
-                const formData = new FormData();
-                selectedFiles.forEach(file => formData.append('files', file));
-                formData.append('quality_mode', qualityMode);
-                formData.append('similarity_threshold', document.getElementById('similarity').value);
+                // Upload files in chunks to avoid 413 errors
+                const CHUNK_SIZE = 50; // Upload 50 files at a time
+                const totalFiles = selectedFiles.length;
+                let uploadedCount = 0;
+
+                document.getElementById('processing-message').textContent = `Uploading photos (0/${totalFiles})...`;
 
                 try {
-                    const response = await fetch('/upload', {
+                    // First, start a new upload session
+                    const initResponse = await fetch('/upload_init', {
                         method: 'POST',
-                        body: formData
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            total_files: totalFiles,
+                            quality_mode: qualityMode,
+                            similarity_threshold: parseFloat(document.getElementById('similarity').value)
+                        })
                     });
 
-                    const data = await response.json();
-
-                    if (data.error) {
-                        alert('Error: ' + data.error);
+                    const initData = await initResponse.json();
+                    if (initData.error) {
+                        alert('Error: ' + initData.error);
                         document.getElementById('processing-overlay').classList.add('hidden');
                         return;
                     }
 
-                    jobId = data.job_id;
+                    const sessionId = initData.session_id;
+
+                    // Upload files in chunks
+                    for (let i = 0; i < totalFiles; i += CHUNK_SIZE) {
+                        const chunk = selectedFiles.slice(i, i + CHUNK_SIZE);
+                        const formData = new FormData();
+
+                        chunk.forEach(file => formData.append('files', file));
+                        formData.append('session_id', sessionId);
+                        formData.append('chunk_index', Math.floor(i / CHUNK_SIZE));
+
+                        const chunkResponse = await fetch('/upload_chunk', {
+                            method: 'POST',
+                            body: formData
+                        });
+
+                        const chunkData = await chunkResponse.json();
+                        if (chunkData.error) {
+                            alert('Error uploading chunk: ' + chunkData.error);
+                            document.getElementById('processing-overlay').classList.add('hidden');
+                            return;
+                        }
+
+                        uploadedCount += chunk.length;
+                        const percent = Math.round((uploadedCount / totalFiles) * 30); // Upload is 30% of progress
+                        document.getElementById('processing-message').textContent = `Uploading photos (${uploadedCount}/${totalFiles})...`;
+                        document.getElementById('progress-fill').style.width = `${percent}%`;
+                        document.getElementById('progress-percent').textContent = percent;
+                    }
+
+                    // All chunks uploaded, start processing
+                    document.getElementById('processing-message').textContent = 'Starting AI processing...';
+
+                    const processResponse = await fetch('/upload_complete', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ session_id: sessionId })
+                    });
+
+                    const processData = await processResponse.json();
+
+                    if (processData.error) {
+                        alert('Error: ' + processData.error);
+                        document.getElementById('processing-overlay').classList.add('hidden');
+                        return;
+                    }
+
+                    jobId = processData.job_id;
                     pollStatus();
 
                 } catch (error) {
