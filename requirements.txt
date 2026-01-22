@@ -22,6 +22,10 @@ onnxruntime>=1.16.0
 
 # Utilities
 tqdm>=4.66.0
+python-dotenv>=1.0.0
+
+# Cloud Storage
+supabase>=2.0.0
 
 # CLIP
 ftfy

@@ -457,6 +457,44 @@ class FaceMatcher:
         borderline.sort(key=lambda x: x['similarity'], reverse=True)
         return borderline
 
+    def save_embeddings(self, filepath: str):
+        """
+        Save reference embeddings to .npz file for later reuse.
+
+        Args:
+            filepath: Path to save the embeddings file
+        """
+        if not self.reference_embeddings:
+            raise ValueError("No reference embeddings to save")
+
+        np.savez_compressed(
+            filepath,
+            embeddings=np.array(self.reference_embeddings),
+            average=self.average_embedding,
+            threshold=self.similarity_threshold
+        )
+        print(f"[FaceMatcher] Saved {len(self.reference_embeddings)} embeddings to {filepath}")
+
+    @classmethod
+    def load_embeddings(cls, filepath: str) -> 'FaceMatcher':
+        """
+        Load reference embeddings from .npz file.
+
+        Args:
+            filepath: Path to the embeddings file
+
+        Returns:
+            FaceMatcher instance with loaded embeddings
+        """
+        data = np.load(filepath, allow_pickle=True)
+
+        matcher = cls(similarity_threshold=float(data['threshold']))
+        matcher.reference_embeddings = list(data['embeddings'])
+        matcher.average_embedding = data['average']
+
+        print(f"[FaceMatcher] Loaded {len(matcher.reference_embeddings)} embeddings from {filepath}")
+        return matcher
+
 
 # Convenience function for quick filtering
 def filter_photos_by_person(reference_photos: List[str],

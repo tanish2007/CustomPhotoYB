@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Saved Datasets - Photo Selection</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8f0 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 30px 20px;
+            text-align: center;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 1.8rem;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .back-link {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            text-decoration: none;
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .back-link:hover {
+            opacity: 1;
+            text-decoration: underline;
+        }
+
+        .header-container {
+            position: relative;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        /* Content */
+        .content {
+            max-width: 1000px;
+            margin: 30px auto;
+            padding: 0 20px;
+        }
+
+        /* Status Badge */
+        .status-bar {
+            background: white;
+            border-radius: 12px;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .status-badge.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-badge.disconnected {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .status-dot.green { background: #28a745; }
+        .status-dot.yellow { background: #ffc107; }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 80px 20px;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        }
+
+        .empty-state .icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+
+        .empty-state h2 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .empty-state p {
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .empty-state a {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 30px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        /* Dataset Grid */
+        .datasets-grid {
+            display: grid;
+            gap: 20px;
+        }
+
+        .dataset-card {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            overflow: hidden;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .dataset-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+        }
+
+        .dataset-card.cloud {
+            border-left: 4px solid #667eea;
+        }
+
+        .dataset-card.local {
+            border-left: 4px solid #28a745;
+        }
+
+        .dataset-content {
+            display: flex;
+            gap: 20px;
+            padding: 20px;
+        }
+
+        .dataset-thumbnails {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 4px;
+            width: 100px;
+            height: 100px;
+            flex-shrink: 0;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #f0f0f0;
+        }
+
+        .dataset-thumbnails .placeholder {
+            background: linear-gradient(135deg, #e8ecff 0%, #f0f4ff 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #667eea;
+            font-size: 16px;
+        }
+
+        .dataset-info {
+            flex: 1;
+        }
+
+        .dataset-info h3 {
+            margin: 0 0 8px;
+            color: #1a1a2e;
+            font-size: 17px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .source-tag {
+            font-size: 11px;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-weight: 500;
+        }
+
+        .source-tag.cloud {
+            background: #e8ecff;
+            color: #667eea;
+        }
+
+        .source-tag.local {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .dataset-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 15px;
+            color: #666;
+            font-size: 13px;
+        }
+
+        .dataset-meta span {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .dataset-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .dataset-actions button {
+            padding: 10px 18px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background: #f0f4ff;
+            color: #667eea;
+        }
+
+        .btn-secondary:hover {
+            background: #e0e8ff;
+        }
+
+        .btn-delete {
+            background: transparent;
+            color: #dc3545;
+            padding: 10px 12px;
+        }
+
+        .btn-delete:hover {
+            background: #fff5f5;
+        }
+
+        .reupload-note {
+            font-size: 11px;
+            color: #888;
+            margin-top: 8px;
+        }
+
+        /* Loading */
+        .loading {
+            text-align: center;
+            padding: 60px;
+            color: #666;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid #f0f0f0;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Delete Modal */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal.hidden {
+            display: none;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 16px;
+            max-width: 400px;
+            text-align: center;
+        }
+
+        .modal-content h3 {
+            margin: 0 0 10px;
+            color: #dc3545;
+        }
+
+        .modal-content p {
+            color: #666;
+            margin-bottom: 25px;
+            font-size: 14px;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+
+        .modal-buttons button {
+            padding: 10px 25px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .dataset-content {
+                flex-direction: column;
+            }
+
+            .dataset-thumbnails {
+                width: 100%;
+                height: 150px;
+            }
+
+            .dataset-actions {
+                flex-direction: column;
+            }
+
+            .dataset-actions button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-container">
+            <a href="/" class="back-link">&larr; Back to Home</a>
+            <h1>Saved Datasets</h1>
+            <p>Continue where you left off</p>
+        </div>
+    </div>
+
+    <div class="content">
+        <!-- Supabase Status -->
+        <div class="status-bar" id="status-bar" style="display: none;">
+            <span>Cloud Storage Status:</span>
+            <span class="status-badge" id="supabase-status">
+                <span class="status-dot"></span>
+                <span class="status-text">Checking...</span>
+            </span>
+        </div>
+
+        <div id="datasets-container">
+            <div class="loading">
+                <div class="spinner"></div>
+                <p>Loading datasets...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div id="delete-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>Delete Dataset?</h3>
+            <p>This will permanently delete "<span id="delete-name"></span>" and all its data. This cannot be undone.</p>
+            <div class="modal-buttons">
+                <button onclick="closeDeleteModal()" style="background: #f0f0f0; color: #333;">Cancel</button>
+                <button onclick="confirmDelete()" style="background: #dc3545; color: white;">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let datasets = [];
+        let deleteTarget = null;
+        let supabaseAvailable = false;
+
+        async function loadDatasets() {
+            try {
+                const response = await fetch('/api/datasets');
+                const data = await response.json();
+                datasets = data.datasets || [];
+                supabaseAvailable = data.supabase_available || false;
+
+                // Update status bar
+                updateStatusBar();
+
+                renderDatasets();
+            } catch (err) {
+                document.getElementById('datasets-container').innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">&#9888;</div>
+                        <h2>Error Loading Datasets</h2>
+                        <p>${err.message}</p>
+                        <a href="/">Go Home</a>
+                    </div>
+                `;
+            }
+        }
+
+        function updateStatusBar() {
+            const statusBar = document.getElementById('status-bar');
+            const statusBadge = document.getElementById('supabase-status');
+
+            statusBar.style.display = 'flex';
+
+            if (supabaseAvailable) {
+                statusBadge.className = 'status-badge connected';
+                statusBadge.innerHTML = `
+                    <span class="status-dot green"></span>
+                    <span>Cloud Connected</span>
+                `;
+            } else {
+                statusBadge.className = 'status-badge disconnected';
+                statusBadge.innerHTML = `
+                    <span class="status-dot yellow"></span>
+                    <span>Local Only</span>
+                `;
+            }
+        }
+
+        function renderDatasets() {
+            const container = document.getElementById('datasets-container');
+
+            if (datasets.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">&#128194;</div>
+                        <h2>No Saved Datasets</h2>
+                        <p>You haven't saved any datasets yet. Process some photos first, then save the dataset from the review page.</p>
+                        <a href="/step1">Get Started</a>
+                    </div>
+                `;
+                return;
+            }
+
+            let html = '<div class="datasets-grid">';
+
+            for (const dataset of datasets) {
+                const isCloud = dataset.source === 'supabase';
+                const date = dataset.created_at ? new Date(dataset.created_at) : null;
+                const dateStr = date ? date.toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                }) : 'Unknown date';
+
+                html += `
+                    <div class="dataset-card ${isCloud ? 'cloud' : 'local'}">
+                        <div class="dataset-content">
+                            <div class="dataset-thumbnails">
+                                <div class="placeholder">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                        <circle cx="8.5" cy="8.5" r="1.5"/>
+                                        <polyline points="21 15 16 10 5 21"/>
+                                    </svg>
+                                </div>
+                                <div class="placeholder">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                        <circle cx="8.5" cy="8.5" r="1.5"/>
+                                        <polyline points="21 15 16 10 5 21"/>
+                                    </svg>
+                                </div>
+                                <div class="placeholder">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                        <circle cx="8.5" cy="8.5" r="1.5"/>
+                                        <polyline points="21 15 16 10 5 21"/>
+                                    </svg>
+                                </div>
+                                <div class="placeholder">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                        <circle cx="8.5" cy="8.5" r="1.5"/>
+                                        <polyline points="21 15 16 10 5 21"/>
+                                    </svg>
+                                </div>
+                            </div>
+                            <div class="dataset-info">
+                                <h3>
+                                    ${dataset.name}
+                                    <span class="source-tag ${isCloud ? 'cloud' : 'local'}">
+                                        ${isCloud ? 'Cloud' : 'Local'}
+                                    </span>
+                                </h3>
+                                <div class="dataset-meta">
+                                    <span>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                            <circle cx="8.5" cy="8.5" r="1.5"/>
+                                            <polyline points="21 15 16 10 5 21"/>
+                                        </svg>
+                                        ${dataset.total_photos || 0} photos
+                                    </span>
+                                    <span>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                                            <line x1="16" y1="2" x2="16" y2="6"/>
+                                            <line x1="8" y1="2" x2="8" y2="6"/>
+                                            <line x1="3" y1="10" x2="21" y2="10"/>
+                                        </svg>
+                                        ${dateStr}
+                                    </span>
+                                    <span>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                                            <circle cx="12" cy="7" r="4"/>
+                                        </svg>
+                                        ${dataset.reference_count || 0} refs
+                                    </span>
+                                </div>
+                                <div class="dataset-actions">
+                                    ${isCloud ? `
+                                        <button class="btn-primary" onclick="loadDataset('${dataset.folder_name}', 'review')">
+                                            Re-upload & Continue
+                                        </button>
+                                    ` : `
+                                        <button class="btn-secondary" onclick="loadDataset('${dataset.folder_name}', 'review')">
+                                            Review Photos
+                                        </button>
+                                        <button class="btn-primary" onclick="loadDataset('${dataset.folder_name}', 'select')">
+                                            Select Best &rarr;
+                                        </button>
+                                    `}
+                                    <button class="btn-delete" onclick="showDeleteModal('${dataset.folder_name}', '${dataset.name}')">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <polyline points="3 6 5 6 21 6"/>
+                                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                                        </svg>
+                                    </button>
+                                </div>
+                                ${isCloud ? `
+                                    <div class="reupload-note">
+                                        Photos not stored in cloud. Re-upload to continue processing.
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        function loadDataset(folderName, goto) {
+            window.location.href = `/load_dataset/${folderName}?goto=${goto}`;
+        }
+
+        function showDeleteModal(folderName, name) {
+            deleteTarget = folderName;
+            document.getElementById('delete-name').textContent = name;
+            document.getElementById('delete-modal').classList.remove('hidden');
+        }
+
+        function closeDeleteModal() {
+            document.getElementById('delete-modal').classList.add('hidden');
+            deleteTarget = null;
+        }
+
+        async function confirmDelete() {
+            if (!deleteTarget) return;
+
+            try {
+                const response = await fetch(`/delete_dataset/${deleteTarget}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    closeDeleteModal();
+                    loadDatasets(); // Reload the list
+                } else {
+                    const data = await response.json();
+                    alert('Error: ' + (data.error || 'Failed to delete'));
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeDeleteModal();
+        });
+
+        // Load datasets on page load
+        loadDatasets();
+    </script>
+</body>
+</html>

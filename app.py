@@ -18,13 +18,30 @@ import uuid
 import shutil
 from pathlib import Path
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify, send_from_directory, send_file, session
+
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not installed, use system env vars
+
+from flask import Flask, render_template, request, jsonify, send_from_directory, send_file, session, redirect
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import RequestEntityTooLarge
 import numpy as np
 from PIL import Image
 import threading
 import time
+
+# Supabase integration
+from supabase_storage import (
+    is_supabase_available,
+    save_dataset_to_supabase,
+    load_dataset_from_supabase,
+    list_datasets_from_supabase,
+    delete_dataset_from_supabase
+)
 
 # HEIC support
 try:
@@ -41,6 +58,7 @@ UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'upload
 RESULTS_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results')
 REFERENCE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'references')
 OUTPUT_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'selected_photos')  # Auto-save location
+DATASETS_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'datasets')  # Saved datasets
 ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png', 'heic', 'heif', 'webp'}
 MAX_CONTENT_LENGTH = 5 * 1024 * 1024 * 1024  # 5GB max (for large photo batches)
 
@@ -53,6 +71,7 @@ app.config['MAX_FORM_PARTS'] = 10000  # Allow up to 10000 files in one upload
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(RESULTS_FOLDER, exist_ok=True)
 os.makedirs(REFERENCE_FOLDER, exist_ok=True)
+os.makedirs(DATASETS_FOLDER, exist_ok=True)
 
 # Store processing status
 processing_jobs = {}
@@ -106,6 +125,20 @@ def create_thumbnail(image_path, thumb_path, size=(300, 300)):
     except Exception as e:
         print(f"Error creating thumbnail: {e}")
         return False
+
+
+def get_thumbnail_name(filename):
+    """
+    Generate thumbnail name that includes the original extension to avoid collisions.
+
+    Example: IMG_5801.HEIC -> thumb_IMG_5801_HEIC.jpg
+             IMG_5801.jpg  -> thumb_IMG_5801_jpg.jpg
+    """
+    if '.' in filename:
+        name, ext = filename.rsplit('.', 1)
+        return f"thumb_{name}_{ext}.jpg"
+    else:
+        return f"thumb_{filename}.jpg"
 
 
 def process_photos_face_filter_only(job_id, upload_dir, session_id=None):
@@ -213,7 +246,7 @@ def process_photos_face_filter_only(job_id, upload_dir, session_id=None):
         filtered_photos = []
         for i, match in enumerate(filter_results['matched_photos']):
             filename = os.path.basename(match['path'])
-            thumb_name = f"thumb_{filename.rsplit('.', 1)[0]}.jpg"
+            thumb_name = get_thumbnail_name(filename)
             thumb_path = os.path.join(thumbs_dir, thumb_name)
 
             create_thumbnail(match['path'], thumb_path)
@@ -519,12 +552,21 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
 
         photos_by_month = defaultdict(list)
 
+        # Debug: Track timestamp extraction success
+        timestamp_found = 0
+        timestamp_missing = 0
+
         for filename in confirmed_photos:
             filepath = os.path.join(upload_dir, filename)
             if not os.path.exists(filepath):
+                print(f"[TIMESTAMP DEBUG] File not found: {filepath}")
                 continue
 
             dt = selector.get_photo_date(filepath)
+            if dt:
+                timestamp_found += 1
+            else:
+                timestamp_missing += 1
 
             # Get cached face data if available
             cached_face = face_data_cache.get(filename, {})
@@ -546,6 +588,7 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
         month_order = list(MONTH_NAMES.values()) + ['Unknown']
         photos_by_month = {m: photos_by_month[m] for m in month_order if m in photos_by_month}
 
+        print(f"[TIMESTAMP DEBUG] Timestamps found: {timestamp_found}, missing: {timestamp_missing}")
         print(f"[Job {job_id}] Photos grouped into {len(photos_by_month)} months:")
         for month, photos in photos_by_month.items():
             print(f"  - {month}: {len(photos)} photos")
@@ -594,13 +637,16 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
             stat['categories'] = cat_breakdown
 
         # Step 6: Build rejected list (photos not selected)
+        # Note: rejection_reason is already set by monthly_selector.py
         selected_filenames = {p['filename'] for p in selected_photos}
         rejected_photos = []
 
         for month, photos in photos_by_month.items():
             for photo in photos:
                 if photo['filename'] not in selected_filenames:
-                    photo['rejection_reason'] = 'Not selected for month quota'
+                    # Keep existing rejection_reason from monthly_selector, or set default
+                    if not photo.get('rejection_reason'):
+                        photo['rejection_reason'] = 'Not selected for month quota'
                     rejected_photos.append(photo)
 
         # Create thumbnails directory
@@ -637,10 +683,28 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
         # Count rejection reasons
         rejection_counts = defaultdict(int)
 
+        # Compute cluster stats for display on photo cards (per-month)
+        # Cluster IDs are assigned per-month, so we need to track (month, cluster_id) pairs
+        # Count total photos per (month, cluster_id)
+        cluster_total_counts = defaultdict(int)
+        for month, photos in photos_by_month.items():
+            for photo in photos:
+                cid = photo.get('cluster_id', -1)
+                if cid != -1:
+                    cluster_total_counts[(month, cid)] += 1
+
+        # Count selected photos per (month, cluster_id)
+        cluster_selected_counts = defaultdict(int)
+        for photo in selected_photos:
+            month = photo.get('month', 'Unknown')
+            cid = photo.get('cluster_id', -1)
+            if cid != -1:
+                cluster_selected_counts[(month, cid)] += 1
+
         # Process selected photos
         for photo in selected_photos:
             filename = photo['filename']
-            thumb_name = f"thumb_{filename.rsplit('.', 1)[0]}.jpg"
+            thumb_name = get_thumbnail_name(filename)
             thumb_path = os.path.join(thumbs_dir, thumb_name)
 
             create_thumbnail(os.path.join(upload_dir, filename), thumb_path)
@@ -653,6 +717,12 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
             # Get embedding for this photo (convert to list for JSON serialization)
             photo_embedding = embeddings.get(filename)
             embedding_list = photo_embedding.tolist() if photo_embedding is not None else None
+
+            # Get cluster stats for this photo (per-month)
+            cid = photo.get('cluster_id', -1)
+            month = photo.get('month', 'Unknown')
+            cluster_total = cluster_total_counts.get((month, cid), 0) if cid != -1 else 0
+            cluster_selected = cluster_selected_counts.get((month, cid), 0) if cid != -1 else 0
 
             results['selected'].append({
                 'filename': filename,
@@ -663,20 +733,23 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
                 'emotional_signal': float(photo.get('emotional_signal', 0)),
                 'uniqueness': float(photo.get('uniqueness', 0)),
                 'bucket': photo.get('month', 'unknown'),
-                'month': photo.get('month', 'Unknown'),
+                'month': month,
                 'category': photo.get('category', 'unknown'),
                 'num_faces': int(photo.get('num_faces', 0)),
-                'cluster_id': photo.get('cluster_id', -1),
+                'cluster_id': cid,
+                'cluster_total': cluster_total,
+                'cluster_selected': cluster_selected,
+                'event_id': photo.get('event_id', -1),
                 'max_similarity': float(photo.get('max_similarity', 0)),
                 'embedding': embedding_list,
-                'selection_reason': f"Best in {photo.get('category', 'category')} for {photo.get('month', 'month')}",
-                'selection_detail': f"Selected from {photo.get('month', 'Unknown')} - Category: {photo.get('category', 'unknown')}"
+                'selection_reason': f"Best in {photo.get('category', 'category')} for {month}",
+                'selection_detail': f"Selected from {month} - Category: {photo.get('category', 'unknown')}"
             })
 
         # Process rejected photos
         for photo in rejected_photos:
             filename = photo['filename']
-            thumb_name = f"thumb_{filename.rsplit('.', 1)[0]}.jpg"
+            thumb_name = get_thumbnail_name(filename)
             thumb_path = os.path.join(thumbs_dir, thumb_name)
 
             create_thumbnail(os.path.join(upload_dir, filename), thumb_path)
@@ -686,13 +759,31 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
             if thumbnails_created % 10 == 0 or thumbnails_created == total_thumbnails:
                 processing_jobs[job_id]['message'] = f'Creating thumbnails: {thumbnails_created}/{total_thumbnails}'
 
-            # Simple rejection reason
-            reason = "Better photos selected"
-            rejection_counts[reason] += 1
+            # Use actual rejection reason from monthly_selector
+            rejection_reason = photo.get('rejection_reason', 'Better photos selected')
+
+            # Categorize rejection reasons for breakdown chart
+            if 'Event' in rejection_reason:
+                breakdown_category = "Same event"
+            elif 'Cluster' in rejection_reason:
+                breakdown_category = "Same cluster"
+            elif 'similar' in rejection_reason.lower():
+                breakdown_category = "Too similar"
+            elif 'Target' in rejection_reason:
+                breakdown_category = "Target reached"
+            else:
+                breakdown_category = "Other"
+            rejection_counts[breakdown_category] += 1
 
             # Get embedding for this photo (convert to list for JSON serialization)
             photo_embedding = embeddings.get(filename)
             embedding_list = photo_embedding.tolist() if photo_embedding is not None else None
+
+            # Get cluster stats for this photo (per-month)
+            cid = photo.get('cluster_id', -1)
+            month = photo.get('month', 'Unknown')
+            cluster_total = cluster_total_counts.get((month, cid), 0) if cid != -1 else 0
+            cluster_selected = cluster_selected_counts.get((month, cid), 0) if cid != -1 else 0
 
             results['rejected'].append({
                 'filename': filename,
@@ -701,12 +792,16 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
                 'face_quality': float(photo.get('face_quality', 0)),
                 'aesthetic_quality': float(photo.get('aesthetic_quality', 0)),
                 'bucket': photo.get('month', 'unknown'),
-                'month': photo.get('month', 'Unknown'),
+                'month': month,
                 'category': photo.get('category', 'unknown'),
-                'cluster_id': photo.get('cluster_id', -1),
+                'cluster_id': cid,
+                'cluster_total': cluster_total,
+                'cluster_selected': cluster_selected,
+                'event_id': photo.get('event_id', -1),
                 'max_similarity': float(photo.get('max_similarity', 0)),
                 'embedding': embedding_list,
-                'reason': reason,
+                'rejection_reason': rejection_reason,
+                'reason': rejection_reason,
                 'reason_detail': f"Category: {photo.get('category', 'unknown')}"
             })
 
@@ -850,7 +945,7 @@ def process_photos_automatic(job_id, upload_dir, quality_mode, similarity_thresh
         # Process selected photos
         for photo in selection_results['selected']:
             filename = photo['filename']
-            thumb_name = f"thumb_{filename.rsplit('.', 1)[0]}.jpg"
+            thumb_name = get_thumbnail_name(filename)
             thumb_path = os.path.join(thumbs_dir, thumb_name)
 
             create_thumbnail(os.path.join(upload_dir, filename), thumb_path)
@@ -878,7 +973,7 @@ def process_photos_automatic(job_id, upload_dir, quality_mode, similarity_thresh
         # Process rejected photos
         for photo in selection_results['rejected']:
             filename = photo['filename']
-            thumb_name = f"thumb_{filename.rsplit('.', 1)[0]}.jpg"
+            thumb_name = get_thumbnail_name(filename)
             thumb_path = os.path.join(thumbs_dir, thumb_name)
 
             create_thumbnail(os.path.join(upload_dir, filename), thumb_path)
@@ -925,6 +1020,21 @@ def process_photos_automatic(job_id, upload_dir, quality_mode, similarity_thresh
 def index():
     """Main page - redirects to step 1 (reference upload)."""
     return render_template('index.html')
+
+
+@app.route('/preload_model')
+def preload_model():
+    """Pre-load the InsightFace model in the background."""
+    from photo_selector.face_matcher import FaceMatcher
+    try:
+        # Create a temporary matcher to trigger model download/load
+        temp_matcher = FaceMatcher(similarity_threshold=0.5)
+        if temp_matcher.is_initialized:
+            return jsonify({'success': True, 'message': 'Model loaded'})
+        else:
+            return jsonify({'success': False, 'message': 'Model failed to initialize'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
 
 
 @app.route('/step1')
@@ -994,7 +1104,7 @@ def upload_reference():
             result['filename'] = filename
 
             # Create thumbnail for preview
-            thumb_name = f"thumb_{filename.rsplit('.', 1)[0]}.jpg"
+            thumb_name = get_thumbnail_name(filename)
             thumb_path = os.path.join(ref_dir, thumb_name)
             create_thumbnail(filepath, thumb_path, size=(150, 150))
             result['thumbnail'] = thumb_name
@@ -2270,7 +2380,7 @@ def process_test_month(job_id, folder_path, target, thumb_dir, organize_by_month
         for photo in selected:
             filename = photo['filename']
             filepath = photo['filepath']
-            thumb_name = f"thumb_{filename.rsplit('.', 1)[0]}.jpg"
+            thumb_name = get_thumbnail_name(filename)
             thumb_path = os.path.join(thumb_dir, thumb_name)
 
             create_thumbnail(filepath, thumb_path)
@@ -2315,7 +2425,7 @@ def process_test_month(job_id, folder_path, target, thumb_dir, organize_by_month
             if photo['filename'] not in selected_filenames:
                 filename = photo['filename']
                 filepath = photo['filepath']
-                thumb_name = f"thumb_{filename.rsplit('.', 1)[0]}.jpg"
+                thumb_name = get_thumbnail_name(filename)
                 thumb_path = os.path.join(thumb_dir, thumb_name)
 
                 create_thumbnail(filepath, thumb_path)
@@ -2479,6 +2589,864 @@ def test_month_download(job_id):
         as_attachment=True,
         download_name=f'test_selected_{job_id}.zip'
     )
+
+
+# ============================================
+# DATASET SAVE/LOAD ROUTES
+# ============================================
+
+@app.route('/datasets')
+def datasets_page():
+    """Show saved datasets page."""
+    return render_template('datasets.html')
+
+
+@app.route('/api/datasets')
+def list_datasets():
+    """List all saved datasets (local + Supabase)."""
+    datasets = []
+    seen_names = set()
+
+    # 1. Get local datasets
+    if os.path.exists(DATASETS_FOLDER):
+        for name in os.listdir(DATASETS_FOLDER):
+            meta_path = os.path.join(DATASETS_FOLDER, name, 'metadata.json')
+            if os.path.exists(meta_path):
+                try:
+                    with open(meta_path, 'r') as f:
+                        meta = json.load(f)
+                        meta['folder_name'] = name
+                        meta['source'] = 'local'
+                        datasets.append(meta)
+                        seen_names.add(name)
+                except:
+                    pass
+
+    # 2. Get Supabase datasets (if available)
+    if is_supabase_available():
+        try:
+            supabase_datasets = list_datasets_from_supabase()
+            for meta in supabase_datasets:
+                folder_name = meta.get('folder_name', '')
+                # Only add if not already in local (local takes priority)
+                if folder_name and folder_name not in seen_names:
+                    meta['source'] = 'supabase'
+                    datasets.append(meta)
+        except Exception as e:
+            print(f"[Datasets] Error fetching from Supabase: {e}")
+
+    # Sort by date, newest first
+    datasets.sort(key=lambda x: x.get('created_at', '') or '', reverse=True)
+    return jsonify({'datasets': datasets, 'supabase_available': is_supabase_available()})
+
+
+@app.route('/save_dataset/<job_id>', methods=['POST'])
+def save_dataset(job_id):
+    """Save dataset after Step 3 review."""
+    try:
+        data = request.get_json()
+        dataset_name = data.get('name', f"dataset_{job_id}")
+
+        # Validate name (alphanumeric, underscore, hyphen, space only)
+        import re
+        safe_name = re.sub(r'[^a-zA-Z0-9_\- ]', '', dataset_name).strip()
+        if not safe_name:
+            safe_name = f"dataset_{job_id}"
+
+        # Create folder name (replace spaces with underscores)
+        folder_name = safe_name.replace(' ', '_')
+        dataset_path = os.path.join(DATASETS_FOLDER, folder_name)
+
+        # Check if already exists
+        if os.path.exists(dataset_path):
+            return jsonify({'error': f'Dataset "{safe_name}" already exists'}), 400
+
+        os.makedirs(dataset_path, exist_ok=True)
+
+        # Get job data
+        if job_id not in processing_jobs:
+            return jsonify({'error': 'Job not found'}), 404
+
+        job = processing_jobs[job_id]
+        session_id = job.get('session_id')
+
+        # 1. Save reference embeddings
+        if session_id and session_id in face_matchers:
+            matcher = face_matchers[session_id]
+            embeddings_path = os.path.join(dataset_path, 'reference_embeddings.npz')
+            np.savez_compressed(
+                embeddings_path,
+                embeddings=np.array(matcher.reference_embeddings),
+                average=matcher.average_embedding,
+                threshold=matcher.similarity_threshold
+            )
+
+        # 2. Copy face results from review JSON
+        review_file = os.path.join(RESULTS_FOLDER, f"{job_id}_review.json")
+        if os.path.exists(review_file):
+            shutil.copy(review_file, os.path.join(dataset_path, 'face_results.json'))
+
+        # 3. Save confirmed photos list
+        confirmed_photos = job.get('confirmed_photos', [])
+        if not confirmed_photos:
+            # Try loading from review JSON (Step 3) - contains filtered_photos
+            review_file = os.path.join(RESULTS_FOLDER, f"{job_id}_review.json")
+            if os.path.exists(review_file):
+                with open(review_file, 'r') as f:
+                    review_data = json.load(f)
+                    filtered = review_data.get('filtered_photos', [])
+                    confirmed_photos = [p['filename'] for p in filtered]
+
+            # Fallback: Try loading from confirm step if not in memory
+            if not confirmed_photos:
+                results_file = os.path.join(RESULTS_FOLDER, f"{job_id}.json")
+                if os.path.exists(results_file):
+                    with open(results_file, 'r') as f:
+                        results_data = json.load(f)
+                        selected = results_data.get('selected_photos', [])
+                        rejected = results_data.get('rejected_photos', [])
+                        confirmed_photos = [p['filename'] for p in selected + rejected]
+
+        with open(os.path.join(dataset_path, 'confirmed_photos.json'), 'w') as f:
+            json.dump({'photos': confirmed_photos}, f)
+
+        # 4. Copy thumbnails folder
+        upload_dir = job.get('upload_dir', os.path.join(UPLOAD_FOLDER, job_id))
+        thumb_dir = os.path.join(upload_dir, 'thumbnails')
+        dataset_thumb_dir = os.path.join(dataset_path, 'thumbnails')
+        if os.path.exists(thumb_dir):
+            shutil.copytree(thumb_dir, dataset_thumb_dir)
+
+        # 5. Copy original photos (for reload)
+        photos_dir = os.path.join(dataset_path, 'photos')
+        os.makedirs(photos_dir, exist_ok=True)
+        for filename in confirmed_photos:
+            src = os.path.join(upload_dir, filename)
+            if os.path.exists(src):
+                shutil.copy(src, os.path.join(photos_dir, filename))
+
+        # 6. Save metadata
+        metadata = {
+            'name': safe_name,
+            'created_at': datetime.now().isoformat(),
+            'original_job_id': job_id,
+            'session_id': session_id,
+            'total_photos': len(confirmed_photos),
+            'quality_mode': job.get('quality_mode', 'balanced'),
+            'similarity_threshold': job.get('similarity_threshold', 0.4),
+            'reference_count': len(face_matchers.get(session_id, {}).reference_embeddings) if session_id in face_matchers else 0
+        }
+
+        with open(os.path.join(dataset_path, 'metadata.json'), 'w') as f:
+            json.dump(metadata, f, indent=2)
+
+        print(f"[Dataset] Saved '{safe_name}' with {len(confirmed_photos)} photos locally")
+
+        # 7. Also save to Supabase (for persistence across HF restarts)
+        supabase_saved = False
+        if is_supabase_available():
+            try:
+                # Read embeddings file as bytes
+                embeddings_path = os.path.join(dataset_path, 'reference_embeddings.npz')
+                embeddings_data = None
+                if os.path.exists(embeddings_path):
+                    with open(embeddings_path, 'rb') as f:
+                        embeddings_data = f.read()
+
+                # Read face results
+                face_results_path = os.path.join(dataset_path, 'face_results.json')
+                face_results = {}
+                if os.path.exists(face_results_path):
+                    with open(face_results_path, 'r') as f:
+                        face_results = json.load(f)
+
+                # Save to Supabase
+                if embeddings_data:
+                    supabase_saved = save_dataset_to_supabase(
+                        folder_name,
+                        embeddings_data,
+                        face_results,
+                        metadata
+                    )
+            except Exception as e:
+                print(f"[Dataset] Supabase save error: {e}")
+
+        return jsonify({
+            'success': True,
+            'name': safe_name,
+            'folder_name': folder_name,
+            'total_photos': len(confirmed_photos),
+            'supabase_saved': supabase_saved
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/load_dataset/<dataset_name>')
+def load_dataset(dataset_name):
+    """Load a saved dataset and redirect to review or selection."""
+    try:
+        dataset_path = os.path.join(DATASETS_FOLDER, dataset_name)
+        from_supabase = False
+
+        # Check if dataset exists locally
+        if not os.path.exists(dataset_path):
+            # Try loading from Supabase
+            if is_supabase_available():
+                print(f"[Dataset] Not found locally, trying Supabase...")
+                supabase_data = load_dataset_from_supabase(dataset_name)
+                if supabase_data:
+                    from_supabase = True
+                    # Redirect to re-upload page (photos not stored in Supabase)
+                    return redirect(f'/reupload_photos/{dataset_name}')
+                else:
+                    return jsonify({'error': 'Dataset not found in local or Supabase'}), 404
+            else:
+                return jsonify({'error': 'Dataset not found'}), 404
+
+        # Load metadata
+        with open(os.path.join(dataset_path, 'metadata.json'), 'r') as f:
+            metadata = json.load(f)
+
+        # Create new job ID
+        job_id = str(uuid.uuid4())[:8]
+        new_session_id = str(uuid.uuid4())[:8]
+
+        # Set up upload directory with photos
+        upload_dir = os.path.join(UPLOAD_FOLDER, job_id)
+        os.makedirs(upload_dir, exist_ok=True)
+
+        # Copy photos from dataset
+        dataset_photos_dir = os.path.join(dataset_path, 'photos')
+        if os.path.exists(dataset_photos_dir):
+            for filename in os.listdir(dataset_photos_dir):
+                src = os.path.join(dataset_photos_dir, filename)
+                shutil.copy(src, os.path.join(upload_dir, filename))
+
+        # Copy thumbnails
+        dataset_thumb_dir = os.path.join(dataset_path, 'thumbnails')
+        if os.path.exists(dataset_thumb_dir):
+            shutil.copytree(dataset_thumb_dir, os.path.join(upload_dir, 'thumbnails'))
+
+        # Load reference embeddings into face_matchers
+        embeddings_path = os.path.join(dataset_path, 'reference_embeddings.npz')
+        if os.path.exists(embeddings_path):
+            from photo_selector.face_matcher import FaceMatcher
+            data = np.load(embeddings_path, allow_pickle=True)
+            matcher = FaceMatcher(similarity_threshold=float(data['threshold']))
+            matcher.reference_embeddings = list(data['embeddings'])
+            matcher.average_embedding = data['average']
+            face_matchers[new_session_id] = matcher
+            session['face_session_id'] = new_session_id
+
+        # Load confirmed photos
+        confirmed_file = os.path.join(dataset_path, 'confirmed_photos.json')
+        confirmed_photos = []
+        if os.path.exists(confirmed_file):
+            with open(confirmed_file, 'r') as f:
+                confirmed_photos = json.load(f).get('photos', [])
+
+        # Load face results
+        face_results_path = os.path.join(dataset_path, 'face_results.json')
+        review_data = None
+        if os.path.exists(face_results_path):
+            with open(face_results_path, 'r') as f:
+                review_data = json.load(f)
+
+        # Create processing job
+        processing_jobs[job_id] = {
+            'status': 'review_pending',
+            'progress': 100,
+            'message': 'Dataset loaded - ready for review',
+            'upload_dir': upload_dir,
+            'session_id': new_session_id,
+            'has_reference_photos': True,
+            'reference_count': metadata.get('reference_count', 0),
+            'quality_mode': metadata.get('quality_mode', 'balanced'),
+            'similarity_threshold': metadata.get('similarity_threshold', 0.4),
+            'confirmed_photos': confirmed_photos,
+            'review_data': review_data,
+            'total_photos': len(confirmed_photos),
+            'from_dataset': dataset_name
+        }
+
+        # Copy face results to results folder for step3
+        if review_data:
+            with open(os.path.join(RESULTS_FOLDER, f"{job_id}_review.json"), 'w') as f:
+                json.dump(review_data, f)
+
+        print(f"[Dataset] Loaded '{dataset_name}' as job {job_id}")
+
+        # Check which page to go to
+        goto = request.args.get('goto', 'review')
+
+        if goto == 'select':
+            # Go directly to Step 4 - start quality selection
+            return redirect(f'/step4_results/{job_id}?from_dataset=1')
+        else:
+            # Go to Step 3 - review page
+            return redirect(f'/step3_review/{job_id}')
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/delete_dataset/<dataset_name>', methods=['DELETE'])
+def delete_dataset(dataset_name):
+    """Delete a saved dataset (local and Supabase)."""
+    try:
+        deleted_local = False
+        deleted_supabase = False
+
+        # Delete local
+        dataset_path = os.path.join(DATASETS_FOLDER, dataset_name)
+        if os.path.exists(dataset_path):
+            shutil.rmtree(dataset_path)
+            deleted_local = True
+            print(f"[Dataset] Deleted '{dataset_name}' locally")
+
+        # Delete from Supabase
+        if is_supabase_available():
+            deleted_supabase = delete_dataset_from_supabase(dataset_name)
+
+        if not deleted_local and not deleted_supabase:
+            return jsonify({'error': 'Dataset not found'}), 404
+
+        return jsonify({'success': True, 'deleted_local': deleted_local, 'deleted_supabase': deleted_supabase})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/dataset_thumbnail/<dataset_name>/<filename>')
+def dataset_thumbnail(dataset_name, filename):
+    """Serve dataset thumbnail."""
+    thumb_dir = os.path.join(DATASETS_FOLDER, dataset_name, 'thumbnails')
+    return send_from_directory(thumb_dir, filename)
+
+
+# ============================================
+# SUPABASE RE-UPLOAD ROUTES
+# ============================================
+
+@app.route('/reupload_photos/<dataset_name>')
+def reupload_photos_page(dataset_name):
+    """Show page to re-upload photos for a Supabase dataset."""
+    # Get metadata from Supabase
+    if not is_supabase_available():
+        return jsonify({'error': 'Supabase not available'}), 500
+
+    supabase_data = load_dataset_from_supabase(dataset_name)
+    if not supabase_data:
+        return jsonify({'error': 'Dataset not found in Supabase'}), 404
+
+    metadata = supabase_data.get('metadata', {})
+    return render_template('reupload_photos.html',
+                         dataset_name=dataset_name,
+                         metadata=metadata)
+
+
+@app.route('/download_from_gdrive/<dataset_name>', methods=['POST'])
+def download_from_gdrive(dataset_name):
+    """Download zip from Google Drive and process photos."""
+    try:
+        import re
+        import zipfile
+        import gdown
+
+        data = request.get_json()
+        gdrive_link = data.get('gdrive_link', '')
+
+        print(f"[GDrive] Starting download for dataset '{dataset_name}'")
+        print(f"[GDrive] Link: {gdrive_link}")
+
+        # Extract file ID from Google Drive link
+        file_id = None
+        patterns = [
+            r'/file/d/([a-zA-Z0-9_-]+)',
+            r'id=([a-zA-Z0-9_-]+)',
+            r'/d/([a-zA-Z0-9_-]+)'
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, gdrive_link)
+            if match:
+                file_id = match.group(1)
+                break
+
+        if not file_id:
+            return jsonify({'error': 'Could not extract file ID from Google Drive link'}), 400
+
+        print(f"[GDrive] File ID: {file_id}")
+
+        # Create job and upload directory
+        job_id = str(uuid.uuid4())[:8]
+        upload_dir = os.path.join(UPLOAD_FOLDER, job_id)
+        os.makedirs(upload_dir, exist_ok=True)
+        os.makedirs(os.path.join(upload_dir, 'thumbnails'), exist_ok=True)
+
+        # Download using gdown (handles large files properly)
+        zip_path = os.path.join(upload_dir, 'photos.zip')
+        gdrive_url = f"https://drive.google.com/uc?id={file_id}"
+
+        print(f"[GDrive] Downloading using gdown...")
+        try:
+            gdown.download(gdrive_url, zip_path, quiet=False, fuzzy=True)
+        except Exception as e:
+            print(f"[GDrive] gdown failed: {e}")
+            # Try with confirm flag for large files
+            try:
+                gdown.download(gdrive_url, zip_path, quiet=False, fuzzy=True, use_cookies=False)
+            except Exception as e2:
+                print(f"[GDrive] gdown retry failed: {e2}")
+                return jsonify({'error': f'Download failed: {str(e2)}'}), 400
+
+        # Check if file was downloaded
+        if not os.path.exists(zip_path) or os.path.getsize(zip_path) < 1000:
+            print(f"[GDrive] ERROR: Download failed or file too small")
+            return jsonify({'error': 'Download failed. Make sure the file is shared with "Anyone with link".'}), 400
+
+        print(f"[GDrive] Download complete: {os.path.getsize(zip_path) / 1024 / 1024:.1f} MB")
+
+        # Extract zip file
+        print(f"[GDrive] Extracting zip file...")
+        uploaded_filenames = []
+        image_extensions = {'.jpg', '.jpeg', '.png', '.heic', '.heif', '.webp', '.bmp', '.gif'}
+
+        try:
+            with zipfile.ZipFile(zip_path, 'r') as zf:
+                for member in zf.namelist():
+                    if member.endswith('/') or '/__MACOSX' in member or member.startswith('.'):
+                        continue
+                    ext = os.path.splitext(member.lower())[1]
+                    if ext in image_extensions:
+                        filename = secure_filename(os.path.basename(member))
+                        if filename:
+                            with zf.open(member) as src:
+                                filepath = os.path.join(upload_dir, filename)
+                                with open(filepath, 'wb') as dst:
+                                    dst.write(src.read())
+                            uploaded_filenames.append(filename)
+
+                            if len(uploaded_filenames) % 200 == 0:
+                                print(f"[GDrive] Extracted {len(uploaded_filenames)} files...")
+
+            print(f"[GDrive] Extracted {len(uploaded_filenames)} photos")
+        finally:
+            # Clean up zip
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
+
+        # Load dataset from Supabase
+        print(f"[GDrive] Loading dataset from Supabase...")
+        supabase_data = load_dataset_from_supabase(dataset_name)
+        if not supabase_data:
+            return jsonify({'error': 'Dataset not found in Supabase'}), 404
+
+        metadata = supabase_data.get('metadata', {})
+        face_results = supabase_data.get('face_results', {})
+        embeddings_data = supabase_data.get('embeddings_data')
+
+        # Load reference embeddings
+        new_session_id = str(uuid.uuid4())[:8]
+        if embeddings_data:
+            import io
+            from photo_selector.face_matcher import FaceMatcher
+            data_np = np.load(io.BytesIO(embeddings_data), allow_pickle=True)
+            matcher = FaceMatcher(similarity_threshold=float(data_np['threshold']))
+            matcher.reference_embeddings = list(data_np['embeddings'])
+            matcher.average_embedding = data_np['average']
+            face_matchers[new_session_id] = matcher
+            session['face_session_id'] = new_session_id
+            print(f"[GDrive] Loaded {len(matcher.reference_embeddings)} reference embeddings")
+
+        # Match uploaded files with saved face results
+        filtered_photos = face_results.get('filtered_photos', [])
+        uploaded_set = set(uploaded_filenames)
+        matched_photos = [p for p in filtered_photos if p.get('filename') in uploaded_set]
+
+        print(f"[GDrive] Matched {len(matched_photos)} of {len(filtered_photos)} photos")
+
+        # Create review data
+        review_data = {
+            'filtered_photos': matched_photos,
+            'total_processed': len(uploaded_filenames),
+            'match_count': len(matched_photos)
+        }
+
+        with open(os.path.join(RESULTS_FOLDER, f"{job_id}_review.json"), 'w') as f:
+            json.dump(review_data, f)
+
+        # Create processing job
+        processing_jobs[job_id] = {
+            'status': 'review_pending',
+            'progress': 100,
+            'message': 'Photos downloaded from Google Drive',
+            'upload_dir': upload_dir,
+            'session_id': new_session_id,
+            'has_reference_photos': True,
+            'reference_count': metadata.get('reference_count', 0),
+            'quality_mode': metadata.get('quality_mode', 'balanced'),
+            'similarity_threshold': metadata.get('similarity_threshold', 0.4),
+            'confirmed_photos': [p['filename'] for p in matched_photos],
+            'review_data': review_data,
+            'total_photos': len(matched_photos),
+            'from_dataset': dataset_name,
+            'from_supabase': True
+        }
+
+        print(f"[GDrive] SUCCESS! Redirecting to step3_review/{job_id}")
+        return jsonify({
+            'success': True,
+            'job_id': job_id,
+            'matched_photos': len(matched_photos),
+            'total_uploaded': len(uploaded_filenames),
+            'redirect_url': f'/step3_review/{job_id}'
+        })
+
+    except Exception as e:
+        print(f"[GDrive] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+# Store chunked upload sessions
+chunked_uploads = {}
+
+@app.route('/start_chunked_upload/<dataset_name>', methods=['POST'])
+def start_chunked_upload(dataset_name):
+    """Start a chunked upload session."""
+    try:
+        data = request.get_json()
+        total_files = data.get('total_files', 0)
+        total_chunks = data.get('total_chunks', 0)
+
+        upload_id = str(uuid.uuid4())[:8]
+        job_id = str(uuid.uuid4())[:8]
+        upload_dir = os.path.join(UPLOAD_FOLDER, job_id)
+        os.makedirs(upload_dir, exist_ok=True)
+        os.makedirs(os.path.join(upload_dir, 'thumbnails'), exist_ok=True)
+
+        chunked_uploads[upload_id] = {
+            'dataset_name': dataset_name,
+            'job_id': job_id,
+            'upload_dir': upload_dir,
+            'total_files': total_files,
+            'total_chunks': total_chunks,
+            'received_chunks': set(),
+            'uploaded_filenames': []
+        }
+
+        print(f"[Chunked] Started upload session {upload_id} for dataset '{dataset_name}' ({total_files} files, {total_chunks} chunks)")
+        return jsonify({'success': True, 'upload_id': upload_id})
+    except Exception as e:
+        print(f"[Chunked] Error starting session: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/upload_reupload_chunk/<dataset_name>', methods=['POST'])
+def upload_reupload_chunk(dataset_name):
+    """Receive a chunk of photos for reupload."""
+    from werkzeug.exceptions import ClientDisconnected
+    try:
+        upload_id = request.form.get('upload_id')
+        chunk_index = int(request.form.get('chunk_index', 0))
+
+        if upload_id not in chunked_uploads:
+            return jsonify({'error': 'Invalid upload session'}), 400
+
+        session_data = chunked_uploads[upload_id]
+        upload_dir = session_data['upload_dir']
+
+        files = request.files.getlist('photos')
+        if not files:
+            return jsonify({'error': 'No files in chunk'}), 400
+
+        # Save files from this chunk
+        for file in files:
+            if file and allowed_file(file.filename):
+                filename = secure_filename(file.filename)
+                filepath = os.path.join(upload_dir, filename)
+                file.save(filepath)
+                session_data['uploaded_filenames'].append(filename)
+
+        session_data['received_chunks'].add(chunk_index)
+        print(f"[Chunked] Upload {upload_id}: Received chunk {chunk_index + 1}/{session_data['total_chunks']} ({len(files)} files)")
+
+        return jsonify({'success': True, 'chunk': chunk_index, 'files_saved': len(files)})
+    except ClientDisconnected:
+        # Client disconnected during upload - this is expected on slow connections
+        print(f"[Chunked] Client disconnected during chunk upload (timeout)")
+        return jsonify({'error': 'Connection timeout - please retry'}), 408
+    except Exception as e:
+        print(f"[Chunked] Error receiving chunk: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/finish_chunked_upload/<dataset_name>', methods=['POST'])
+def finish_chunked_upload(dataset_name):
+    """Finalize chunked upload and process photos."""
+    try:
+        data = request.get_json()
+        upload_id = data.get('upload_id')
+
+        if upload_id not in chunked_uploads:
+            return jsonify({'error': 'Invalid upload session'}), 400
+
+        session_data = chunked_uploads[upload_id]
+        job_id = session_data['job_id']
+        upload_dir = session_data['upload_dir']
+        uploaded_filenames = session_data['uploaded_filenames']
+
+        print(f"[Chunked] Finalizing upload {upload_id}: {len(uploaded_filenames)} files received")
+
+        # Load dataset from Supabase
+        print(f"[Chunked] Loading dataset from Supabase...")
+        supabase_data = load_dataset_from_supabase(dataset_name)
+        if not supabase_data:
+            return jsonify({'error': 'Dataset not found in Supabase'}), 404
+
+        metadata = supabase_data.get('metadata', {})
+        face_results = supabase_data.get('face_results', {})
+        embeddings_data = supabase_data.get('embeddings_data')
+
+        # Load reference embeddings
+        new_session_id = str(uuid.uuid4())[:8]
+        if embeddings_data:
+            import io
+            from photo_selector.face_matcher import FaceMatcher
+            data_np = np.load(io.BytesIO(embeddings_data), allow_pickle=True)
+            matcher = FaceMatcher(similarity_threshold=float(data_np['threshold']))
+            matcher.reference_embeddings = list(data_np['embeddings'])
+            matcher.average_embedding = data_np['average']
+            face_matchers[new_session_id] = matcher
+            session['face_session_id'] = new_session_id
+            print(f"[Chunked] Loaded {len(matcher.reference_embeddings)} reference embeddings")
+
+        # Match uploaded files with saved face results
+        filtered_photos = face_results.get('filtered_photos', [])
+        uploaded_set = set(uploaded_filenames)
+        matched_photos = [p for p in filtered_photos if p.get('filename') in uploaded_set]
+
+        print(f"[Chunked] Matched {len(matched_photos)} of {len(filtered_photos)} photos")
+
+        # Create review data
+        review_data = {
+            'filtered_photos': matched_photos,
+            'total_processed': len(uploaded_filenames),
+            'match_count': len(matched_photos)
+        }
+
+        with open(os.path.join(RESULTS_FOLDER, f"{job_id}_review.json"), 'w') as f:
+            json.dump(review_data, f)
+
+        # Create processing job
+        processing_jobs[job_id] = {
+            'status': 'review_pending',
+            'progress': 100,
+            'message': 'Photos matched with saved face results',
+            'upload_dir': upload_dir,
+            'session_id': new_session_id,
+            'has_reference_photos': True,
+            'reference_count': metadata.get('reference_count', 0),
+            'quality_mode': metadata.get('quality_mode', 'balanced'),
+            'similarity_threshold': metadata.get('similarity_threshold', 0.4),
+            'confirmed_photos': [p['filename'] for p in matched_photos],
+            'review_data': review_data,
+            'total_photos': len(matched_photos),
+            'from_dataset': dataset_name,
+            'from_supabase': True
+        }
+
+        # Clean up session
+        del chunked_uploads[upload_id]
+
+        print(f"[Chunked] SUCCESS! Redirecting to step3_review/{job_id}")
+        return jsonify({
+            'success': True,
+            'job_id': job_id,
+            'matched_photos': len(matched_photos),
+            'total_uploaded': len(uploaded_filenames),
+            'redirect_url': f'/step3_review/{job_id}'
+        })
+
+    except Exception as e:
+        print(f"[Chunked] Error finalizing: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/process_reupload/<dataset_name>', methods=['POST'])
+def process_reupload(dataset_name):
+    """Process re-uploaded photos using saved face results from Supabase."""
+    try:
+        print(f"[Reupload] Starting reupload for dataset '{dataset_name}'")
+
+        # Load dataset from Supabase
+        print(f"[Reupload] Loading dataset from Supabase...")
+        supabase_data = load_dataset_from_supabase(dataset_name)
+        if not supabase_data:
+            print(f"[Reupload] ERROR: Dataset not found in Supabase")
+            return jsonify({'error': 'Dataset not found in Supabase'}), 404
+
+        metadata = supabase_data.get('metadata', {})
+        face_results = supabase_data.get('face_results', {})
+        embeddings_data = supabase_data.get('embeddings_data')
+        print(f"[Reupload] Dataset loaded: {len(face_results.get('filtered_photos', []))} photos in face results")
+
+        # Create new job
+        job_id = str(uuid.uuid4())[:8]
+        new_session_id = str(uuid.uuid4())[:8]
+        upload_dir = os.path.join(UPLOAD_FOLDER, job_id)
+        os.makedirs(upload_dir, exist_ok=True)
+        os.makedirs(os.path.join(upload_dir, 'thumbnails'), exist_ok=True)
+
+        # Check if zip file was uploaded
+        zipfile_upload = request.files.get('zipfile')
+        uploaded_filenames = []
+
+        if zipfile_upload and zipfile_upload.filename.lower().endswith('.zip'):
+            # Handle zip file upload
+            import zipfile
+            print(f"[Reupload] Received zip file: {zipfile_upload.filename}")
+
+            # Save zip temporarily
+            zip_path = os.path.join(upload_dir, 'upload.zip')
+            zipfile_upload.save(zip_path)
+            print(f"[Reupload] Zip saved, extracting...")
+
+            # Extract zip file
+            try:
+                with zipfile.ZipFile(zip_path, 'r') as zf:
+                    # Get list of image files in zip
+                    image_extensions = {'.jpg', '.jpeg', '.png', '.heic', '.heif', '.webp', '.bmp', '.gif'}
+                    for member in zf.namelist():
+                        # Skip directories and hidden files
+                        if member.endswith('/') or '/__MACOSX' in member or member.startswith('.'):
+                            continue
+                        # Check if it's an image
+                        ext = os.path.splitext(member.lower())[1]
+                        if ext in image_extensions:
+                            # Extract with flat structure (no subdirectories)
+                            filename = secure_filename(os.path.basename(member))
+                            if filename:
+                                # Read from zip and save to upload_dir
+                                with zf.open(member) as src:
+                                    filepath = os.path.join(upload_dir, filename)
+                                    with open(filepath, 'wb') as dst:
+                                        dst.write(src.read())
+                                uploaded_filenames.append(filename)
+
+                                if len(uploaded_filenames) % 200 == 0:
+                                    print(f"[Reupload] Extracted {len(uploaded_filenames)} files...")
+
+                print(f"[Reupload] Extracted {len(uploaded_filenames)} photos from zip")
+            finally:
+                # Clean up zip file
+                if os.path.exists(zip_path):
+                    os.remove(zip_path)
+        else:
+            # Handle individual photo uploads
+            files = request.files.getlist('photos')
+            if not files or (len(files) == 1 and files[0].filename == ''):
+                print(f"[Reupload] ERROR: No photos uploaded")
+                return jsonify({'error': 'No photos uploaded'}), 400
+
+            print(f"[Reupload] Saving {len(files)} uploaded files (thumbnails skipped for speed)...")
+            for i, file in enumerate(files):
+                if file and allowed_file(file.filename):
+                    filename = secure_filename(file.filename)
+                    filepath = os.path.join(upload_dir, filename)
+                    file.save(filepath)
+                    uploaded_filenames.append(filename)
+
+                    # Log progress every 200 files
+                    if (i + 1) % 200 == 0:
+                        print(f"[Reupload] Saved {i + 1}/{len(files)} files...")
+
+            print(f"[Reupload] Saved {len(uploaded_filenames)} photos for dataset '{dataset_name}'")
+
+        # Load reference embeddings
+        print(f"[Reupload] Loading reference embeddings...")
+        if embeddings_data:
+            import io
+            from photo_selector.face_matcher import FaceMatcher
+
+            # Load directly from bytes using BytesIO (no temp file needed)
+            data = np.load(io.BytesIO(embeddings_data), allow_pickle=True)
+            matcher = FaceMatcher(similarity_threshold=float(data['threshold']))
+            matcher.reference_embeddings = list(data['embeddings'])
+            matcher.average_embedding = data['average']
+            face_matchers[new_session_id] = matcher
+            session['face_session_id'] = new_session_id
+            print(f"[Reupload] Loaded {len(matcher.reference_embeddings)} reference embeddings")
+
+        # Match uploaded files with saved face results
+        print(f"[Reupload] Matching uploaded files with saved face results...")
+        filtered_photos = face_results.get('filtered_photos', [])
+
+        # Create a set for faster lookup
+        uploaded_set = set(uploaded_filenames)
+
+        # Filter to only photos that were uploaded
+        matched_photos = []
+        for photo in filtered_photos:
+            if photo.get('filename') in uploaded_set:
+                matched_photos.append(photo)
+
+        print(f"[Reupload] Matched {len(matched_photos)} of {len(filtered_photos)} photos from face results")
+
+        # Create review data
+        review_data = {
+            'filtered_photos': matched_photos,
+            'total_processed': len(uploaded_filenames),
+            'match_count': len(matched_photos)
+        }
+
+        # Save review data
+        with open(os.path.join(RESULTS_FOLDER, f"{job_id}_review.json"), 'w') as f:
+            json.dump(review_data, f)
+        print(f"[Reupload] Saved review data")
+
+        # Create processing job - mark as ready for quality selection
+        processing_jobs[job_id] = {
+            'status': 'review_pending',
+            'progress': 100,
+            'message': 'Photos matched with saved face results',
+            'upload_dir': upload_dir,
+            'session_id': new_session_id,
+            'has_reference_photos': True,
+            'reference_count': metadata.get('reference_count', 0),
+            'quality_mode': metadata.get('quality_mode', 'balanced'),
+            'similarity_threshold': metadata.get('similarity_threshold', 0.4),
+            'confirmed_photos': [p['filename'] for p in matched_photos],
+            'review_data': review_data,
+            'total_photos': len(matched_photos),
+            'from_dataset': dataset_name,
+            'from_supabase': True
+        }
+
+        print(f"[Reupload] SUCCESS! Redirecting to step3_review/{job_id}")
+        return jsonify({
+            'success': True,
+            'job_id': job_id,
+            'matched_photos': len(matched_photos),
+            'total_uploaded': len(uploaded_filenames),
+            'redirect_url': f'/step3_review/{job_id}'
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 
 if __name__ == '__main__':

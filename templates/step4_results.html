@@ -390,8 +390,28 @@
             letter-spacing: 0.5px;
         }
 
+        .month-table tbody tr {
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
         .month-table tbody tr:hover {
-            background: #f9fafb;
+            background: #f0f4ff;
+        }
+
+        .month-table tbody tr.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .month-table tbody tr.active .month-name,
+        .month-table tbody tr.active .selected-count {
+            color: white;
+        }
+
+        .month-table tbody tr.active .category-tag {
+            background: rgba(255, 255, 255, 0.25);
+            color: white;
         }
 
         .month-table .month-name {
@@ -433,71 +453,216 @@
             color: white;
         }
 
-        /* Tabs */
-        .tabs-container {
+        /* Cluster View Container */
+        .clusters-container {
             background: white;
             border-radius: 16px;
             overflow: hidden;
             box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
         }
 
-        .tabs {
+        .clusters-header {
             display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 20px 25px;
             border-bottom: 1px solid #e5e7eb;
-        }
-
-        .tab {
-            flex: 1;
-            padding: 18px 25px;
-            border: none;
-            background: transparent;
-            cursor: pointer;
-            font-size: 15px;
-            font-weight: 500;
-            color: #6b7280;
-            transition: all 0.2s ease;
-            position: relative;
-        }
-
-        .tab:hover {
             background: #f9fafb;
         }
 
-        .tab.active {
-            color: #667eea;
+        .clusters-header h3 {
+            font-size: 18px;
             font-weight: 600;
+            color: #1a1a2e;
+            margin: 0;
         }
 
-        .tab.active::after {
-            content: '';
+        .clusters-legend {
+            display: flex;
+            gap: 20px;
+            font-size: 13px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .legend-badge {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: bold;
+            color: white;
+        }
+
+        .legend-badge.selected {
+            background: #10b981;
+        }
+
+        .legend-badge.rejected {
+            background: #ef4444;
+        }
+
+        .clusters-content {
+            padding: 25px;
+        }
+
+        /* Cluster Card */
+        .cluster-card {
+            background: #f9fafb;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            overflow: hidden;
+            border: 1px solid #e5e7eb;
+        }
+
+        .cluster-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .cluster-card-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .cluster-card-title .cluster-id {
+            background: rgba(255, 255, 255, 0.25);
+            color: white;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+
+        .cluster-card-stats {
+            display: flex;
+            gap: 12px;
+            font-size: 13px;
+        }
+
+        .cluster-stat {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        .cluster-card-photos {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 12px;
+            padding: 16px;
+        }
+
+        .cluster-card-photos.collapsed {
+            display: none;
+        }
+
+        .cluster-photo-card {
+            position: relative;
+            border-radius: 10px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .cluster-photo-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+        }
+
+        .cluster-photo-card img {
+            width: 100%;
+            height: 120px;
+            object-fit: cover;
+        }
+
+        .cluster-photo-card.selected {
+            border: 3px solid #10b981;
+        }
+
+        .cluster-photo-card.rejected {
+            border: 3px solid #ef4444;
+            opacity: 0.85;
+        }
+
+        .cluster-photo-badge {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+            color: white;
+        }
+
+        .cluster-photo-card.selected .cluster-photo-badge {
+            background: #10b981;
+        }
+
+        .cluster-photo-card.rejected .cluster-photo-badge {
+            background: #ef4444;
+        }
+
+        .cluster-photo-score {
             position: absolute;
             bottom: 0;
             left: 0;
             right: 0;
-            height: 3px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        }
-
-        .tab-count {
-            background: #e5e7eb;
-            padding: 2px 10px;
-            border-radius: 12px;
-            font-size: 13px;
-            margin-left: 8px;
-        }
-
-        .tab.active .tab-count {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
             color: white;
+            font-size: 11px;
+            font-weight: 600;
+            text-align: center;
+            padding: 15px 4px 4px;
         }
 
-        .tab-content {
-            display: none;
-            padding: 25px;
+        .cluster-photo-reason {
+            position: absolute;
+            bottom: 18px;
+            left: 0;
+            right: 0;
+            color: white;
+            font-size: 9px;
+            text-align: center;
+            padding: 0 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
-        .tab-content.active {
-            display: block;
+        /* No cluster section */
+        .no-cluster-section {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 2px dashed #e5e7eb;
+        }
+
+        .no-cluster-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #6b7280;
+            margin-bottom: 15px;
         }
 
         /* Photo Grid */
@@ -508,6 +673,10 @@
         }
 
         /* Month Section */
+        .month-section {
+            margin-bottom: 15px;
+        }
+
         .month-section-header {
             display: flex;
             align-items: center;
@@ -516,6 +685,16 @@
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             border-radius: 12px;
             color: white;
+            transition: all 0.2s;
+        }
+
+        .month-section-header:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .month-section-header.active {
+            border-radius: 12px 12px 0 0;
         }
 
         .month-section-title {
@@ -536,6 +715,11 @@
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
             gap: 20px;
+            padding: 20px;
+            background: #f9fafb;
+            border: 2px solid #667eea;
+            border-top: none;
+            border-radius: 0 0 12px 12px;
         }
 
         .photo-card {
@@ -608,6 +792,12 @@
             -webkit-line-clamp: 2;
             -webkit-box-orient: vertical;
             overflow: hidden;
+        }
+
+        .cluster-info {
+            font-size: 12px;
+            color: #9ca3af;
+            margin-top: 4px;
         }
 
         .cluster-badge {
@@ -1078,16 +1268,6 @@
             <div class="step-circle active">4</div>
             <span class="step-label">Results</span>
         </div>
-        <div class="step-connector"></div>
-        <div class="step">
-            <div class="step-circle pending">5</div>
-            <span class="step-label">Quality</span>
-        </div>
-        <div class="step-connector"></div>
-        <div class="step">
-            <div class="step-circle pending">6</div>
-            <span class="step-label">Download</span>
-        </div>
     </div>
 
     <!-- Processing Overlay -->
@@ -1148,7 +1328,7 @@
 
             <!-- Month Distribution Table -->
             <div class="breakdown-card" id="month-distribution">
-                <h3>Photo Selection by Month</h3>
+                <h3>Photo Selection by Month <span style="font-size: 12px; color: #6b7280; font-weight: 400;">(click a row to view photos)</span></h3>
                 <div class="month-table-container">
                     <table class="month-table" id="month-table">
                         <thead>
@@ -1173,27 +1353,23 @@
                 <div id="rejection-bars"></div>
             </div>
 
-            <!-- Tabs Container -->
-            <div class="tabs-container">
-                <div class="tabs">
-                    <button class="tab active" data-tab="selected" onclick="switchTab('selected')">
-                        Selected Photos
-                        <span class="tab-count" id="selected-count">0</span>
-                    </button>
-                    <button class="tab" data-tab="rejected" onclick="switchTab('rejected')">
-                        Filtered Out
-                        <span class="tab-count" id="rejected-count">0</span>
-                    </button>
+            <!-- Cluster View Container -->
+            <div class="clusters-container">
+                <div class="clusters-header">
+                    <h3>Photos by Cluster</h3>
+                    <div class="clusters-legend">
+                        <div class="legend-item">
+                            <span class="legend-badge selected">✓</span>
+                            <span>Selected (<span id="selected-count">0</span>)</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-badge rejected">✗</span>
+                            <span>Filtered (<span id="rejected-count">0</span>)</span>
+                        </div>
+                    </div>
                 </div>
-
-                <!-- Selected Photos Tab -->
-                <div id="selected-tab" class="tab-content active">
-                    <div class="photo-grid" id="selected-grid"></div>
-                </div>
-
-                <!-- Rejected Photos Tab -->
-                <div id="rejected-tab" class="tab-content">
-                    <div class="photo-grid" id="rejected-grid"></div>
+                <div class="clusters-content" id="clusters-content">
+                    <!-- Clusters will be rendered here by JavaScript -->
                 </div>
             </div>
         </div>
@@ -1296,9 +1472,8 @@
                 // Render rejection breakdown
                 renderRejectionBreakdown();
 
-                // Render photo grids
-                renderPhotoGrid('selected-grid', results.selected || [], true);
-                renderPhotoGrid('rejected-grid', results.rejected || [], false);
+                // Render cluster-based view (all photos grouped by clusters)
+                renderClusterBasedView();
 
                 // Show results
                 document.getElementById('processing-overlay').classList.add('hidden');
@@ -1309,6 +1484,8 @@
                 alert('Failed to load results: ' + error.message);
             }
         }
+
+        let activeMonth = null; // Track which month is currently expanded
 
         function renderMonthTable() {
             const monthStats = results.month_stats || [];
@@ -1340,6 +1517,8 @@
                 }
 
                 const row = document.createElement('tr');
+                row.dataset.month = stat.month;
+                row.onclick = () => toggleMonthAccordion(stat.month);
                 row.innerHTML = `
                     <td class="month-name">${stat.month}</td>
                     <td>${stat.total_photos || 0}</td>
@@ -1359,6 +1538,62 @@
             `;
             tfoot.appendChild(footRow);
         }
+
+        function toggleMonthAccordion(month) {
+            const tbody = document.getElementById('month-table-body');
+
+            // Remove active class from all rows
+            tbody.querySelectorAll('tr').forEach(row => row.classList.remove('active'));
+
+            // If clicking same month, show all months
+            if (activeMonth === month) {
+                activeMonth = null;
+                filterClustersByMonth(null);
+                return;
+            }
+
+            // Set active row
+            const activeRow = tbody.querySelector(`tr[data-month="${month}"]`);
+            if (activeRow) {
+                activeRow.classList.add('active');
+            }
+
+            activeMonth = month;
+
+            // Filter clusters section to show only this month
+            filterClustersByMonth(month);
+
+            // Scroll to clusters section
+            const clustersContainer = document.querySelector('.clusters-container');
+            clustersContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function filterClustersByMonth(month) {
+            const container = document.getElementById('clusters-content');
+            const allMonthSections = container.querySelectorAll('.month-section');
+
+            if (month === null) {
+                // Reset to default: show only the first month
+                allMonthSections.forEach((section, index) => {
+                    if (index === 0) {
+                        section.style.display = 'block';
+                    } else {
+                        section.style.display = 'none';
+                    }
+                });
+            } else {
+                // Show only the selected month
+                allMonthSections.forEach(section => {
+                    const sectionMonth = section.dataset.month;
+                    if (sectionMonth === month) {
+                        section.style.display = 'block';
+                    } else {
+                        section.style.display = 'none';
+                    }
+                });
+            }
+        }
+
 
         function renderRejectionBreakdown() {
             const container = document.getElementById('rejection-bars');
@@ -1401,23 +1636,38 @@
             return MONTH_ORDER[monthName] || 13;
         }
 
-        function renderPhotoGrid(gridId, photos, isSelected) {
-            const grid = document.getElementById(gridId);
-            grid.innerHTML = '';
+        function renderClusterBasedView() {
+            const container = document.getElementById('clusters-content');
+            container.innerHTML = '';
 
-            if (photos.length === 0) {
-                grid.innerHTML = `
+            // Combine all photos (selected + rejected) with isSelected flag
+            const allPhotos = [];
+
+            if (results.selected) {
+                for (const p of results.selected) {
+                    allPhotos.push({ ...p, isSelected: true });
+                }
+            }
+
+            if (results.rejected) {
+                for (const p of results.rejected) {
+                    allPhotos.push({ ...p, isSelected: false });
+                }
+            }
+
+            if (allPhotos.length === 0) {
+                container.innerHTML = `
                     <div class="empty-state">
-                        <div class="empty-state-icon">${isSelected ? '📭' : '✨'}</div>
-                        <p>${isSelected ? 'No photos selected yet.' : 'All photos made it through!'}</p>
+                        <div class="empty-state-icon">📭</div>
+                        <p>No photos to display.</p>
                     </div>
                 `;
                 return;
             }
 
-            // Group photos by month
+            // Group photos by month first, then by cluster within each month
             const photosByMonth = {};
-            for (const photo of photos) {
+            for (const photo of allPhotos) {
                 const month = photo.month || photo.bucket || 'Unknown';
                 if (!photosByMonth[month]) {
                     photosByMonth[month] = [];
@@ -1430,56 +1680,160 @@
                 return getMonthOrder(a) - getMonthOrder(b);
             });
 
-            // Render each month section
+            // Render each month
             for (const month of sortedMonths) {
                 const monthPhotos = photosByMonth[month];
 
-                // Create month header
+                // Create month section
+                const monthSection = document.createElement('div');
+                monthSection.className = 'month-section';
+                monthSection.dataset.month = month;
+
+                // Month header
+                const selectedInMonth = monthPhotos.filter(p => p.isSelected).length;
+                const rejectedInMonth = monthPhotos.length - selectedInMonth;
+
                 const monthHeader = document.createElement('div');
-                monthHeader.className = 'month-section-header';
+                monthHeader.className = 'month-section-header active';
                 monthHeader.innerHTML = `
                     <h3 class="month-section-title">${month}</h3>
-                    <span class="month-section-count">${monthPhotos.length} photo${monthPhotos.length !== 1 ? 's' : ''}</span>
+                    <span class="month-section-count">${selectedInMonth} selected / ${rejectedInMonth} filtered</span>
                 `;
-                grid.appendChild(monthHeader);
+                monthSection.appendChild(monthHeader);
 
-                // Create photo container for this month
-                const monthGrid = document.createElement('div');
-                monthGrid.className = 'month-photo-grid';
+                // Group photos by cluster within this month
+                const clusterMap = {};
+                const noClusterPhotos = [];
 
                 for (const photo of monthPhotos) {
-                    const card = document.createElement('div');
-                    card.className = `photo-card ${isSelected ? '' : 'rejected'}`;
-                    card.onclick = () => openModal(photo, isSelected);
-
-                    const reason = isSelected
-                        ? (photo.selection_reason || 'High quality')
-                        : (photo.reason || 'Did not meet threshold');
-
-                    const category = photo.category || '';
-
-                    card.innerHTML = `
-                        <img src="/thumbnail/${jobId}/${photo.thumbnail}" alt="${photo.filename}" loading="lazy">
-                        <div class="photo-info">
-                            ${category ? `<div class="category-label">${category}</div>` : ''}
-                            <div class="photo-reason">${reason}</div>
-                        </div>
-                    `;
-                    monthGrid.appendChild(card);
+                    const clusterId = photo.cluster_id;
+                    if (clusterId !== undefined && clusterId >= 0) {
+                        if (!clusterMap[clusterId]) {
+                            clusterMap[clusterId] = [];
+                        }
+                        clusterMap[clusterId].push(photo);
+                    } else {
+                        noClusterPhotos.push(photo);
+                    }
                 }
 
-                grid.appendChild(monthGrid);
+                // Create clusters container
+                const clustersDiv = document.createElement('div');
+                clustersDiv.style.padding = '20px';
+                clustersDiv.style.background = '#f9fafb';
+                clustersDiv.style.borderRadius = '0 0 12px 12px';
+
+                // Sort clusters by cluster_id
+                const sortedClusterIds = Object.keys(clusterMap).map(Number).sort((a, b) => a - b);
+
+                // Render each cluster card
+                for (const clusterId of sortedClusterIds) {
+                    const clusterPhotos = clusterMap[clusterId];
+                    // Sort photos by score (highest first)
+                    clusterPhotos.sort((a, b) => (b.score || 0) - (a.score || 0));
+
+                    const selectedCount = clusterPhotos.filter(p => p.isSelected).length;
+                    const rejectedCount = clusterPhotos.length - selectedCount;
+                    const clusterKey = `${month}-${clusterId}`;
+
+                    const clusterCard = document.createElement('div');
+                    clusterCard.className = 'cluster-card';
+                    clusterCard.dataset.clusterKey = clusterKey;
+
+                    // Cluster header (always expanded, no click to toggle)
+                    const clusterHeader = document.createElement('div');
+                    clusterHeader.className = 'cluster-card-header expanded';
+                    clusterHeader.innerHTML = `
+                        <div class="cluster-card-title">
+                            <span class="cluster-id">Cluster #${clusterId}</span>
+                            <span>${clusterPhotos.length} photo${clusterPhotos.length !== 1 ? 's' : ''}</span>
+                        </div>
+                        <div class="cluster-card-stats">
+                            <span class="cluster-stat selected">✓ ${selectedCount}</span>
+                            <span class="cluster-stat rejected">✗ ${rejectedCount}</span>
+                        </div>
+                    `;
+                    clusterCard.appendChild(clusterHeader);
+
+                    // Cluster photos grid (always visible)
+                    const photosGrid = document.createElement('div');
+                    photosGrid.className = 'cluster-card-photos';
+                    photosGrid.id = `cluster-photos-${clusterKey.replace(/\s+/g, '-')}`;
+
+                    for (const photo of clusterPhotos) {
+                        const photoCard = createClusterPhotoCard(photo);
+                        photosGrid.appendChild(photoCard);
+                    }
+
+                    clusterCard.appendChild(photosGrid);
+                    clustersDiv.appendChild(clusterCard);
+                }
+
+                // Render photos with no cluster
+                if (noClusterPhotos.length > 0) {
+                    const noClusterSection = document.createElement('div');
+                    noClusterSection.className = 'no-cluster-section';
+
+                    const noClusterTitle = document.createElement('div');
+                    noClusterTitle.className = 'no-cluster-title';
+                    noClusterTitle.textContent = `Unclustered Photos (${noClusterPhotos.length})`;
+                    noClusterSection.appendChild(noClusterTitle);
+
+                    const noClusterGrid = document.createElement('div');
+                    noClusterGrid.className = 'cluster-card-photos';
+                    noClusterGrid.style.background = 'white';
+                    noClusterGrid.style.borderRadius = '12px';
+                    noClusterGrid.style.border = '1px dashed #e5e7eb';
+
+                    // Sort by score
+                    noClusterPhotos.sort((a, b) => (b.score || 0) - (a.score || 0));
+
+                    for (const photo of noClusterPhotos) {
+                        const photoCard = createClusterPhotoCard(photo);
+                        noClusterGrid.appendChild(photoCard);
+                    }
+
+                    noClusterSection.appendChild(noClusterGrid);
+                    clustersDiv.appendChild(noClusterSection);
+                }
+
+                monthSection.appendChild(clustersDiv);
+                container.appendChild(monthSection);
+            }
+
+            // By default, show only the first month (hide others)
+            if (sortedMonths.length > 0) {
+                // Hide all months except the first one
+                const allMonthSections = container.querySelectorAll('.month-section');
+                allMonthSections.forEach((section, index) => {
+                    if (index > 0) {
+                        section.style.display = 'none';
+                    }
+                });
             }
         }
 
-        function switchTab(tabName) {
-            // Update tab buttons
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+        function createClusterPhotoCard(photo) {
+            const photoCard = document.createElement('div');
+            photoCard.className = `cluster-photo-card ${photo.isSelected ? 'selected' : 'rejected'}`;
+            photoCard.onclick = () => openModal(photo, photo.isSelected);
 
-            // Update tab content
-            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            document.getElementById(`${tabName}-tab`).classList.add('active');
+            const scorePercent = photo.score ? (photo.score * 100).toFixed(0) : '0';
+            const reason = photo.isSelected
+                ? (photo.selection_reason || 'Selected')
+                : (photo.rejection_reason || photo.reason || 'Filtered');
+
+            // Shorten reason for display
+            const shortReason = reason.length > 20 ? reason.substring(0, 18) + '...' : reason;
+
+            photoCard.innerHTML = `
+                <img src="/thumbnail/${jobId}/${photo.thumbnail}" alt="${photo.filename}" loading="lazy">
+                <div class="cluster-photo-badge">${photo.isSelected ? '✓' : '✗'}</div>
+                <div class="cluster-photo-reason">${shortReason}</div>
+                <div class="cluster-photo-score">${scorePercent}%</div>
+            `;
+
+            return photoCard;
         }
 
         function openModal(photo, isSelected) {
@@ -1492,7 +1846,7 @@
                 reasonDiv.innerHTML = `<strong>✓ Selected:</strong> ${photo.selection_reason || 'High quality photo'}`;
             } else {
                 reasonDiv.className = 'modal-reason rejected';
-                reasonDiv.innerHTML = `<strong>✗ Filtered:</strong> ${photo.reason || 'Did not meet threshold'}`;
+                reasonDiv.innerHTML = `<strong>✗ Filtered:</strong> ${photo.rejection_reason || photo.reason || 'Did not meet threshold'}`;
             }
 
             const scoresDiv = document.getElementById('modal-scores');

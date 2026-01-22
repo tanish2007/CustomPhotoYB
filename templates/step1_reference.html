@@ -514,32 +514,22 @@
         <div class="steps">
             <div class="step active">
                 <div class="step-circle">1</div>
-                <div class="step-label">Upload Photos</div>
+                <div class="step-label">Reference</div>
             </div>
             <div class="step-connector"></div>
             <div class="step">
                 <div class="step-circle">2</div>
-                <div class="step-label">Identify Child</div>
+                <div class="step-label">Upload</div>
             </div>
             <div class="step-connector"></div>
             <div class="step">
                 <div class="step-circle">3</div>
-                <div class="step-label">Find Photos</div>
-            </div>
-            <div class="step-connector"></div>
-            <div class="step">
-                <div class="step-circle">4</div>
                 <div class="step-label">Review</div>
             </div>
             <div class="step-connector"></div>
             <div class="step">
-                <div class="step-circle">5</div>
-                <div class="step-label">Select Best</div>
-            </div>
-            <div class="step-connector"></div>
-            <div class="step">
-                <div class="step-circle">6</div>
-                <div class="step-label">Download</div>
+                <div class="step-circle">4</div>
+                <div class="step-label">Results</div>
             </div>
         </div>
 
@@ -645,6 +635,48 @@
         });
 
         let modelLoaded = false; // Track if model has been loaded
+        let modelLoading = false; // Track if model is currently loading
+
+        // Preload model immediately when script runs (IIFE)
+        (function preloadModelNow() {
+            if (modelLoaded || modelLoading) return;
+            modelLoading = true;
+
+            // Show loading indicator immediately in bottom-right corner
+            const statusEl = document.createElement('div');
+            statusEl.id = 'model-status';
+            statusEl.style.cssText = 'position: fixed; bottom: 20px; right: 20px; background: #667eea; color: white; padding: 12px 18px; border-radius: 8px; font-size: 14px; box-shadow: 0 4px 15px rgba(0,0,0,0.25); z-index: 9999; display: flex; align-items: center; gap: 10px;';
+            statusEl.innerHTML = '<span style="display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 1s linear infinite;"></span> Loading AI model...';
+            document.body.appendChild(statusEl);
+
+            console.log('[Preload] Starting model preload...');
+
+            fetch('/preload_model')
+                .then(response => response.json())
+                .then(data => {
+                    console.log('[Preload] Response:', data);
+                    if (data.success) {
+                        modelLoaded = true;
+                        statusEl.innerHTML = '✓ AI model ready';
+                        statusEl.style.background = '#28a745';
+                        setTimeout(() => statusEl.remove(), 2000);
+                    } else {
+                        statusEl.innerHTML = '⚠ Model will load on first upload';
+                        statusEl.style.background = '#ffc107';
+                        statusEl.style.color = '#333';
+                        setTimeout(() => statusEl.remove(), 3000);
+                    }
+                    modelLoading = false;
+                })
+                .catch(e => {
+                    console.error('[Preload] Error:', e);
+                    statusEl.innerHTML = '⚠ Model will load on first upload';
+                    statusEl.style.background = '#ffc107';
+                    statusEl.style.color = '#333';
+                    setTimeout(() => statusEl.remove(), 3000);
+                    modelLoading = false;
+                });
+        })();
 
         async function uploadReferencePhotos(files) {
             const formData = new FormData();
@@ -652,18 +684,13 @@
                 formData.append('files', file);
             }
 
-            // Show loading overlay with appropriate message
+            // Show loading overlay
             const loadingOverlay = document.getElementById('loading-overlay');
             const loadingText = document.getElementById('loading-text');
             const loadingSubtext = document.getElementById('loading-subtext');
 
-            if (modelLoaded) {
-                loadingText.textContent = 'Detecting face...';
-                loadingSubtext.textContent = 'Analyzing your photo';
-            } else {
-                loadingText.textContent = 'Loading AI model...';
-                loadingSubtext.textContent = 'First load downloads the model (~120MB)';
-            }
+            loadingText.textContent = 'Detecting face...';
+            loadingSubtext.textContent = 'Analyzing your photo';
             loadingOverlay.classList.add('show');
 
             try {

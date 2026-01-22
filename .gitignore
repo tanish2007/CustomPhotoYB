@@ -48,8 +48,14 @@ results/
 references/
 selected_photos/
 thumbnails/
+datasets/
 *.log
 *.sqlite
+
+# Environment variables (secrets)
+.env
+.env.local
+.env.*.local
 
 # Model cache
 .cache/
@@ -58,3 +64,4 @@ models/
 # Temporary files
 *.tmp
 *.bak
+nul
