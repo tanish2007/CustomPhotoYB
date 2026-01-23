@@ -1327,6 +1327,295 @@ def upload_complete():
 # ============== END CHUNKED UPLOAD ENDPOINTS ==============
 
 
+# ============== GOOGLE DRIVE IMPORT ENDPOINTS ==============
+
+# Import Google Drive module
+try:
+    from google_drive import (
+        is_drive_available, extract_folder_id, list_images_in_folder,
+        download_folder, get_folder_info, get_drive_service
+    )
+    GDRIVE_SERVICE_ACCOUNT_AVAILABLE = is_drive_available()
+except ImportError:
+    GDRIVE_SERVICE_ACCOUNT_AVAILABLE = False
+
+
+@app.route('/check_drive_status')
+def check_drive_status():
+    """Check if Google Drive Service Account is configured."""
+    return jsonify({
+        'available': GDRIVE_SERVICE_ACCOUNT_AVAILABLE,
+        'message': 'Service Account configured' if GDRIVE_SERVICE_ACCOUNT_AVAILABLE else 'Service Account not configured'
+    })
+
+
+@app.route('/preview_drive_folder', methods=['POST'])
+def preview_drive_folder():
+    """Preview contents of a Google Drive folder before importing."""
+    if not GDRIVE_SERVICE_ACCOUNT_AVAILABLE:
+        return jsonify({'error': 'Google Drive Service Account not configured'}), 400
+
+    data = request.get_json()
+    folder_url = data.get('folder_url', '').strip()
+
+    if not folder_url:
+        return jsonify({'error': 'Please provide a folder URL'}), 400
+
+    try:
+        folder_id = extract_folder_id(folder_url)
+        info = get_folder_info(folder_id)
+
+        if not info.get('success'):
+            return jsonify({'error': info.get('error', 'Could not access folder')}), 400
+
+        return jsonify({
+            'success': True,
+            'folder_id': folder_id,
+            'folder_name': info.get('folder_name', 'Unknown'),
+            'image_count': info.get('image_count', 0),
+            'preview_images': info.get('images', [])[:5]
+        })
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        print(f"[Drive] Error previewing folder: {e}")
+        return jsonify({'error': f'Could not access folder: {str(e)}'}), 400
+
+
+@app.route('/import_from_drive', methods=['POST'])
+def import_from_drive():
+    """Import photos from Google Drive folder (Step 2 - initial upload)."""
+    if not GDRIVE_SERVICE_ACCOUNT_AVAILABLE:
+        return jsonify({'error': 'Google Drive Service Account not configured'}), 400
+
+    data = request.get_json()
+    folder_url = data.get('folder_url', '').strip()
+    quality_mode = data.get('quality_mode', 'balanced')
+    similarity_threshold = float(data.get('similarity_threshold', 0.4))
+
+    if not folder_url:
+        return jsonify({'error': 'Please provide a folder URL'}), 400
+
+    # Get face session
+    face_session_id = session.get('face_session_id')
+    has_references = False
+    ref_count = 0
+    if face_session_id and face_session_id in face_matchers:
+        ref_count = face_matchers[face_session_id].get_reference_count()
+        has_references = ref_count > 0
+
+    try:
+        folder_id = extract_folder_id(folder_url)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
+    # Create job
+    job_id = str(uuid.uuid4())[:8]
+    upload_dir = os.path.join(UPLOAD_FOLDER, job_id)
+    os.makedirs(upload_dir, exist_ok=True)
+    os.makedirs(os.path.join(upload_dir, 'thumbnails'), exist_ok=True)
+
+    # Initialize job
+    processing_jobs[job_id] = {
+        'status': 'downloading',
+        'progress': 5,
+        'message': 'Connecting to Google Drive...',
+        'total_files': 0,
+        'total_uploaded': 0,
+        'upload_dir': upload_dir,
+        'session_id': face_session_id,
+        'has_reference_photos': has_references,
+        'reference_count': ref_count,
+        'quality_mode': quality_mode,
+        'similarity_threshold': similarity_threshold,
+        'results': None
+    }
+
+    # Start download in background thread
+    def download_and_process():
+        try:
+            def progress_callback(current, total, filename):
+                pct = int(5 + (current / total) * 25)  # 5% to 30%
+                processing_jobs[job_id]['progress'] = pct
+                processing_jobs[job_id]['message'] = f'Downloading from Drive: {current}/{total}'
+                processing_jobs[job_id]['total_files'] = total
+                processing_jobs[job_id]['total_uploaded'] = current
+
+            print(f"[Job {job_id}] Starting Google Drive download from folder {folder_id}")
+
+            result = download_folder(folder_id, upload_dir, progress_callback)
+
+            if not result.get('success') and result.get('downloaded', 0) == 0:
+                processing_jobs[job_id]['status'] = 'error'
+                processing_jobs[job_id]['message'] = result.get('message', 'Download failed')
+                return
+
+            downloaded_count = result.get('downloaded', 0)
+            processing_jobs[job_id]['total_uploaded'] = downloaded_count
+            processing_jobs[job_id]['total_files'] = downloaded_count
+
+            print(f"[Job {job_id}] Downloaded {downloaded_count} photos from Google Drive")
+
+            # Now start the face filtering or quality selection
+            if has_references:
+                processing_jobs[job_id]['message'] = f'Scanning {downloaded_count} photos for faces...'
+                process_photos_face_filter_only(job_id, upload_dir, face_session_id)
+            else:
+                processing_jobs[job_id]['message'] = f'Selecting best from {downloaded_count} photos...'
+                process_photos_quality_selection(job_id, upload_dir, quality_mode, similarity_threshold)
+
+        except Exception as e:
+            print(f"[Job {job_id}] Drive import error: {e}")
+            import traceback
+            traceback.print_exc()
+            processing_jobs[job_id]['status'] = 'error'
+            processing_jobs[job_id]['message'] = f'Import failed: {str(e)}'
+
+    thread = threading.Thread(target=download_and_process)
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({
+        'job_id': job_id,
+        'message': 'Starting Google Drive import...'
+    })
+
+
+@app.route('/import_from_drive_reupload/<dataset_name>', methods=['POST'])
+def import_from_drive_reupload(dataset_name):
+    """Import photos from Google Drive folder for reupload (after server restart)."""
+    if not GDRIVE_SERVICE_ACCOUNT_AVAILABLE:
+        return jsonify({'error': 'Google Drive Service Account not configured'}), 400
+
+    data = request.get_json()
+    folder_url = data.get('folder_url', '').strip()
+
+    if not folder_url:
+        return jsonify({'error': 'Please provide a folder URL'}), 400
+
+    try:
+        folder_id = extract_folder_id(folder_url)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
+    # Create job
+    job_id = str(uuid.uuid4())[:8]
+    upload_dir = os.path.join(UPLOAD_FOLDER, job_id)
+    os.makedirs(upload_dir, exist_ok=True)
+    os.makedirs(os.path.join(upload_dir, 'thumbnails'), exist_ok=True)
+
+    # Initialize job
+    processing_jobs[job_id] = {
+        'status': 'downloading',
+        'progress': 5,
+        'message': 'Connecting to Google Drive...'
+    }
+
+    # Start download and processing in background
+    def download_and_process_reupload():
+        try:
+            def progress_callback(current, total, filename):
+                pct = int(5 + (current / total) * 45)  # 5% to 50%
+                processing_jobs[job_id]['progress'] = pct
+                processing_jobs[job_id]['message'] = f'Downloading from Drive: {current}/{total}'
+
+            print(f"[Job {job_id}] Starting Google Drive reupload for dataset '{dataset_name}'")
+
+            result = download_folder(folder_id, upload_dir, progress_callback)
+
+            if not result.get('success') and result.get('downloaded', 0) == 0:
+                processing_jobs[job_id]['status'] = 'error'
+                processing_jobs[job_id]['message'] = result.get('message', 'Download failed')
+                return
+
+            uploaded_filenames = result.get('files', [])
+            print(f"[Job {job_id}] Downloaded {len(uploaded_filenames)} photos")
+
+            # Load dataset from Supabase
+            processing_jobs[job_id]['message'] = 'Loading saved dataset...'
+            processing_jobs[job_id]['progress'] = 55
+
+            supabase_data = load_dataset_from_supabase(dataset_name)
+            if not supabase_data:
+                processing_jobs[job_id]['status'] = 'error'
+                processing_jobs[job_id]['message'] = 'Dataset not found in Supabase'
+                return
+
+            metadata = supabase_data.get('metadata', {})
+            face_results = supabase_data.get('face_results', {})
+            embeddings_data = supabase_data.get('embeddings_data')
+
+            # Load reference embeddings
+            new_session_id = str(uuid.uuid4())[:8]
+            if embeddings_data:
+                import io
+                from photo_selector.face_matcher import FaceMatcher
+                data_np = np.load(io.BytesIO(embeddings_data), allow_pickle=True)
+                matcher = FaceMatcher(similarity_threshold=float(data_np['threshold']))
+                matcher.reference_embeddings = list(data_np['embeddings'])
+                matcher.average_embedding = data_np['average']
+                face_matchers[new_session_id] = matcher
+                # Note: Can't set session here (background thread) - session_id stored in processing_jobs
+                print(f"[Job {job_id}] Loaded {len(matcher.reference_embeddings)} reference embeddings")
+
+            # Match uploaded files with saved face results
+            filtered_photos = face_results.get('filtered_photos', [])
+            uploaded_set = set(uploaded_filenames)
+            matched_photos = [p for p in filtered_photos if p.get('filename') in uploaded_set]
+
+            print(f"[Job {job_id}] Matched {len(matched_photos)} of {len(filtered_photos)} photos")
+
+            # Create review data
+            review_data = {
+                'filtered_photos': matched_photos,
+                'total_processed': len(uploaded_filenames),
+                'match_count': len(matched_photos)
+            }
+
+            with open(os.path.join(RESULTS_FOLDER, f"{job_id}_review.json"), 'w') as f:
+                json.dump(review_data, f)
+
+            # Update processing job
+            processing_jobs[job_id].update({
+                'status': 'review_pending',
+                'progress': 100,
+                'message': 'Photos downloaded from Google Drive',
+                'upload_dir': upload_dir,
+                'session_id': new_session_id,
+                'has_reference_photos': True,
+                'reference_count': metadata.get('reference_count', 0),
+                'quality_mode': metadata.get('quality_mode', 'balanced'),
+                'similarity_threshold': metadata.get('similarity_threshold', 0.4),
+                'confirmed_photos': [p['filename'] for p in matched_photos],
+                'review_data': review_data,
+                'total_photos': len(matched_photos),
+                'from_dataset': dataset_name,
+                'from_supabase': True,
+                'redirect_url': f'/step3_review/{job_id}'
+            })
+
+            print(f"[Job {job_id}] Reupload complete - ready for review")
+
+        except Exception as e:
+            print(f"[Job {job_id}] Drive reupload error: {e}")
+            import traceback
+            traceback.print_exc()
+            processing_jobs[job_id]['status'] = 'error'
+            processing_jobs[job_id]['message'] = f'Import failed: {str(e)}'
+
+    thread = threading.Thread(target=download_and_process_reupload)
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({
+        'job_id': job_id,
+        'message': 'Starting Google Drive import...'
+    })
+
+
+# ============== END GOOGLE DRIVE IMPORT ENDPOINTS ==============
+
+
 @app.route('/upload', methods=['POST'])
 def upload_files():
     """Handle file uploads and start processing."""

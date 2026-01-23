@@ -743,6 +743,7 @@
             <div class="upload-tabs">
                 <button class="upload-tab active" onclick="switchUploadMethod('browser')">Browser Upload</button>
                 <button class="upload-tab" onclick="switchUploadMethod('folder')">Local Folder Path</button>
+                <button class="upload-tab" id="drive-tab" onclick="switchUploadMethod('drive')" style="display: none;">Google Drive</button>
             </div>
 
             <!-- Browser Upload Area -->
@@ -764,6 +765,25 @@
                 <input type="text" id="folder-path" class="folder-path-input"
                        placeholder="C:\Users\YourName\Photos\EventPhotos">
                 <p class="folder-hint">Example: C:\Users\tanis\Downloads\SchoolPhotos</p>
+            </div>
+
+            <!-- Google Drive Input -->
+            <div class="folder-input-area hidden" id="drive-input-area">
+                <div class="upload-icon" style="font-size: 48px;">&#9729;</div>
+                <h3>Import from Google Drive</h3>
+                <p>Paste a Google Drive folder URL (folder must be shared with the service account)</p>
+                <input type="text" id="drive-folder-url" class="folder-path-input"
+                       placeholder="https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOpQrS">
+                <p class="folder-hint">Paste the folder URL from your browser address bar</p>
+                <div id="drive-preview" style="margin-top: 15px; display: none;">
+                    <div style="background: #e8f5e9; padding: 12px 16px; border-radius: 8px; text-align: left;">
+                        <strong id="drive-folder-name" style="color: #2e7d32;"></strong>
+                        <span id="drive-image-count" style="color: #666; margin-left: 10px;"></span>
+                    </div>
+                </div>
+                <button class="btn btn-secondary" id="preview-drive-btn" onclick="previewDriveFolder()" style="margin-top: 15px;">
+                    Preview Folder
+                </button>
             </div>
 
             <!-- Settings Panel -->
@@ -848,22 +868,51 @@
         let selectedFiles = [];
         let qualityMode = 'balanced';
         let jobId = null;
-        let uploadMethod = 'browser';  // 'browser' or 'folder'
+        let uploadMethod = 'browser';  // 'browser', 'folder', or 'drive'
+        let driveAvailable = false;
+        let driveFolderVerified = false;
+
+        // Check if Google Drive is available on page load
+        async function checkDriveAvailability() {
+            try {
+                const response = await fetch('/check_drive_status');
+                const data = await response.json();
+                driveAvailable = data.available;
+                if (driveAvailable) {
+                    document.getElementById('drive-tab').style.display = '';
+                }
+            } catch (e) {
+                console.log('Drive check failed:', e);
+            }
+        }
+        checkDriveAvailability();
 
         // Upload method switcher
         function switchUploadMethod(method) {
             uploadMethod = method;
             document.querySelectorAll('.upload-tab').forEach(tab => {
-                tab.classList.toggle('active', tab.textContent.toLowerCase().includes(method === 'browser' ? 'browser' : 'local'));
+                const tabText = tab.textContent.toLowerCase();
+                const isActive = (method === 'browser' && tabText.includes('browser')) ||
+                                 (method === 'folder' && tabText.includes('local')) ||
+                                 (method === 'drive' && tabText.includes('drive'));
+                tab.classList.toggle('active', isActive);
             });
-            document.getElementById('drop-zone').classList.toggle('hidden', method === 'folder');
-            document.getElementById('folder-input-area').classList.toggle('hidden', method === 'browser');
+            document.getElementById('drop-zone').classList.toggle('hidden', method !== 'browser');
+            document.getElementById('folder-input-area').classList.toggle('hidden', method !== 'folder');
+            document.getElementById('drive-input-area').classList.toggle('hidden', method !== 'drive');
 
             // Update file preview visibility based on method
             if (method === 'folder') {
                 document.getElementById('file-preview').classList.add('hidden');
-                // Show process button directly in folder area
                 updateFolderPreview();
+            } else if (method === 'drive') {
+                document.getElementById('file-preview').classList.add('hidden');
+                updateDrivePreview();
+            } else {
+                // Browser mode - show preview if files selected
+                if (selectedFiles.length > 0) {
+                    document.getElementById('file-preview').classList.remove('hidden');
+                }
             }
         }
 
@@ -880,8 +929,72 @@
             }
         }
 
+        function updateDrivePreview() {
+            const driveUrl = document.getElementById('drive-folder-url').value.trim();
+            const preview = document.getElementById('file-preview');
+
+            if (driveUrl && driveFolderVerified) {
+                preview.classList.remove('hidden');
+            } else {
+                preview.classList.add('hidden');
+            }
+        }
+
+        async function previewDriveFolder() {
+            const driveUrl = document.getElementById('drive-folder-url').value.trim();
+            if (!driveUrl) {
+                alert('Please enter a Google Drive folder URL');
+                return;
+            }
+
+            const btn = document.getElementById('preview-drive-btn');
+            btn.textContent = 'Checking...';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('/preview_drive_folder', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ folder_url: driveUrl })
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                    driveFolderVerified = false;
+                } else {
+                    // Show preview
+                    document.getElementById('drive-folder-name').textContent = data.folder_name;
+                    document.getElementById('drive-image-count').textContent = `(${data.image_count} images found)`;
+                    document.getElementById('drive-preview').style.display = 'block';
+                    driveFolderVerified = true;
+
+                    // Show file preview section with process button
+                    const preview = document.getElementById('file-preview');
+                    preview.classList.remove('hidden');
+                    document.getElementById('file-count').textContent = `${data.image_count} images`;
+                    document.getElementById('preview-grid').innerHTML = '<div style="padding: 20px; color: #666; font-size: 14px;">Ready to import from: ' + data.folder_name + '</div>';
+                }
+            } catch (e) {
+                console.error('Preview error:', e);
+                alert('Failed to preview folder. Please check the URL.');
+                driveFolderVerified = false;
+            } finally {
+                btn.textContent = 'Preview Folder';
+                btn.disabled = false;
+            }
+        }
+
         // Folder path input handler
         document.getElementById('folder-path').addEventListener('input', updateFolderPreview);
+
+        // Drive URL input handler - reset verification on change
+        document.getElementById('drive-folder-url').addEventListener('input', function() {
+            driveFolderVerified = false;
+            document.getElementById('drive-preview').style.display = 'none';
+            document.getElementById('file-preview').classList.add('hidden');
+        });
 
         // File input handler
         document.getElementById('file-input').addEventListener('change', function(e) {
@@ -962,7 +1075,52 @@
             // Show processing overlay
             document.getElementById('processing-overlay').classList.remove('hidden');
 
-            if (uploadMethod === 'folder') {
+            if (uploadMethod === 'drive') {
+                // Google Drive import mode
+                const driveUrl = document.getElementById('drive-folder-url').value.trim();
+                if (!driveUrl) {
+                    alert('Please enter a Google Drive folder URL');
+                    document.getElementById('processing-overlay').classList.add('hidden');
+                    return;
+                }
+
+                if (!driveFolderVerified) {
+                    alert('Please click "Preview Folder" first to verify access');
+                    document.getElementById('processing-overlay').classList.add('hidden');
+                    return;
+                }
+
+                document.getElementById('processing-message').textContent = 'Connecting to Google Drive...';
+
+                try {
+                    const response = await fetch('/import_from_drive', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            folder_url: driveUrl,
+                            quality_mode: qualityMode,
+                            similarity_threshold: parseFloat(document.getElementById('similarity').value)
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.error) {
+                        alert('Error: ' + data.error);
+                        document.getElementById('processing-overlay').classList.add('hidden');
+                        return;
+                    }
+
+                    jobId = data.job_id;
+                    pollStatus();
+
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Failed to import from Google Drive. Please try again.');
+                    document.getElementById('processing-overlay').classList.add('hidden');
+                }
+
+            } else if (uploadMethod === 'folder') {
                 // Local folder path mode
                 const folderPath = document.getElementById('folder-path').value.trim();
                 if (!folderPath) {

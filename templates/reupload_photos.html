@@ -112,6 +112,92 @@
             color: #667eea;
         }
 
+        /* Upload Tabs */
+        .upload-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .upload-tab {
+            flex: 1;
+            padding: 12px 20px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            background: white;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        .upload-tab:hover {
+            border-color: #667eea;
+        }
+
+        .upload-tab.active {
+            border-color: #667eea;
+            background: #f0f4ff;
+            color: #667eea;
+        }
+
+        /* Drive Input */
+        .drive-input-area {
+            border: 2px dashed #ddd;
+            border-radius: 12px;
+            padding: 40px 30px;
+            text-align: center;
+            display: none;
+        }
+
+        .drive-input-area.active {
+            display: block;
+        }
+
+        .drive-input-area h3 {
+            font-size: 1.1rem;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .drive-input-area p {
+            color: #888;
+            font-size: 14px;
+            margin-bottom: 15px;
+        }
+
+        .drive-url-input {
+            width: 100%;
+            max-width: 500px;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: 'Consolas', monospace;
+        }
+
+        .drive-url-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .drive-preview {
+            margin-top: 15px;
+            display: none;
+        }
+
+        .drive-preview.show {
+            display: block;
+        }
+
+        .drive-preview-content {
+            background: #e8f5e9;
+            padding: 12px 16px;
+            border-radius: 8px;
+            text-align: left;
+        }
+
         /* Upload Area */
         .upload-card {
             background: white;
@@ -367,6 +453,13 @@
 
         <!-- Upload Area -->
         <div class="upload-card">
+            <!-- Upload Method Tabs -->
+            <div class="upload-tabs">
+                <button class="upload-tab active" onclick="switchUploadMethod('browser')">Browser Upload</button>
+                <button class="upload-tab" id="drive-tab" onclick="switchUploadMethod('drive')" style="display: none;">Google Drive</button>
+            </div>
+
+            <!-- Browser Upload Area -->
             <div class="upload-area" id="upload-area" onclick="document.getElementById('file-input').click()">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -376,6 +469,26 @@
                 <h3>Upload Your Photos</h3>
                 <p>Drag and drop photos or a .zip file here, or click to browse</p>
                 <span class="btn">Select Photos or Zip</span>
+            </div>
+
+            <!-- Google Drive Input Area -->
+            <div class="drive-input-area" id="drive-input-area">
+                <svg viewBox="0 0 24 24" width="50" height="50" fill="none" stroke="#667eea" stroke-width="1.5" style="margin-bottom: 15px;">
+                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                </svg>
+                <h3>Import from Google Drive</h3>
+                <p>Paste a Google Drive folder URL (must be shared with service account)</p>
+                <input type="text" id="drive-folder-url" class="drive-url-input"
+                       placeholder="https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOpQrS">
+                <div class="drive-preview" id="drive-preview">
+                    <div class="drive-preview-content">
+                        <strong id="drive-folder-name" style="color: #2e7d32;"></strong>
+                        <span id="drive-image-count" style="color: #666; margin-left: 10px;"></span>
+                    </div>
+                </div>
+                <button class="btn" id="preview-drive-btn" onclick="previewDriveFolder()" style="margin-top: 15px; background: #f0f0f0; color: #333;">
+                    Preview Folder
+                </button>
             </div>
 
             <input type="file" id="file-input" multiple accept="image/*,.heic,.heif,.zip">
@@ -414,6 +527,99 @@
     <script>
         const datasetName = "{{ dataset_name }}";
         let selectedFiles = [];
+        let uploadMethod = 'browser';  // 'browser' or 'drive'
+        let driveAvailable = false;
+        let driveFolderVerified = false;
+
+        // Check if Google Drive is available on page load
+        async function checkDriveAvailability() {
+            try {
+                const response = await fetch('/check_drive_status');
+                const data = await response.json();
+                driveAvailable = data.available;
+                if (driveAvailable) {
+                    document.getElementById('drive-tab').style.display = '';
+                }
+            } catch (e) {
+                console.log('Drive check failed:', e);
+            }
+        }
+        checkDriveAvailability();
+
+        // Upload method switcher
+        function switchUploadMethod(method) {
+            uploadMethod = method;
+            document.querySelectorAll('.upload-tab').forEach(tab => {
+                const tabText = tab.textContent.toLowerCase();
+                const isActive = (method === 'browser' && tabText.includes('browser')) ||
+                                 (method === 'drive' && tabText.includes('drive'));
+                tab.classList.toggle('active', isActive);
+            });
+
+            // Show/hide upload areas
+            document.getElementById('upload-area').style.display = method === 'browser' ? 'block' : 'none';
+            document.getElementById('drive-input-area').classList.toggle('active', method === 'drive');
+
+            // Reset file list when switching
+            if (method === 'drive') {
+                document.getElementById('file-list').style.display = 'none';
+                selectedFiles = [];
+                document.getElementById('btn-process').disabled = !driveFolderVerified;
+            } else {
+                document.getElementById('btn-process').disabled = selectedFiles.length === 0;
+            }
+        }
+
+        // Preview Google Drive folder
+        async function previewDriveFolder() {
+            const driveUrl = document.getElementById('drive-folder-url').value.trim();
+            if (!driveUrl) {
+                alert('Please enter a Google Drive folder URL');
+                return;
+            }
+
+            const btn = document.getElementById('preview-drive-btn');
+            btn.textContent = 'Checking...';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('/preview_drive_folder', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ folder_url: driveUrl })
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                    driveFolderVerified = false;
+                } else {
+                    // Show preview
+                    document.getElementById('drive-folder-name').textContent = data.folder_name;
+                    document.getElementById('drive-image-count').textContent = `(${data.image_count} images found)`;
+                    document.getElementById('drive-preview').classList.add('show');
+                    driveFolderVerified = true;
+                    document.getElementById('btn-process').disabled = false;
+                }
+            } catch (e) {
+                console.error('Preview error:', e);
+                alert('Failed to preview folder. Please check the URL.');
+                driveFolderVerified = false;
+            } finally {
+                btn.textContent = 'Preview Folder';
+                btn.disabled = false;
+            }
+        }
+
+        // Reset verification when URL changes
+        document.getElementById('drive-folder-url').addEventListener('input', function() {
+            driveFolderVerified = false;
+            document.getElementById('drive-preview').classList.remove('show');
+            if (uploadMethod === 'drive') {
+                document.getElementById('btn-process').disabled = true;
+            }
+        });
 
         // File input change
         document.getElementById('file-input').addEventListener('change', function(e) {
@@ -516,14 +722,21 @@
         const CHUNK_SIZE = 20; // Upload 20 photos per batch (smaller = more reliable on HuggingFace)
 
         async function processPhotos() {
-            if (selectedFiles.length === 0) return;
-
             const btn = document.getElementById('btn-process');
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner"></span>Processing...';
 
             const progressSection = document.getElementById('progress-section');
             progressSection.classList.add('active');
+
+            // Google Drive import mode
+            if (uploadMethod === 'drive') {
+                await importFromDrive();
+                return;
+            }
+
+            // Browser upload modes
+            if (selectedFiles.length === 0) return;
 
             // If zip upload, use single request (zip is already one file)
             if (isZipUpload) {
@@ -533,6 +746,77 @@
 
             // For individual photos, use chunked upload
             await uploadInChunks();
+        }
+
+        // Google Drive import function
+        async function importFromDrive() {
+            const btn = document.getElementById('btn-process');
+            const driveUrl = document.getElementById('drive-folder-url').value.trim();
+
+            if (!driveUrl || !driveFolderVerified) {
+                showResult(false, 'Please verify the Drive folder first');
+                btn.disabled = false;
+                btn.innerHTML = 'Continue Processing';
+                return;
+            }
+
+            document.getElementById('progress-text').textContent = 'Importing from Google Drive...';
+            document.getElementById('progress-status').textContent = 'Connecting to Google Drive...';
+
+            try {
+                const response = await fetch(`/import_from_drive_reupload/${datasetName}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ folder_url: driveUrl })
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    showResult(false, data.error);
+                    btn.disabled = false;
+                    btn.innerHTML = 'Continue Processing';
+                    return;
+                }
+
+                // Poll for status
+                const jobId = data.job_id;
+                pollDriveImportStatus(jobId, btn);
+
+            } catch (err) {
+                showResult(false, 'Failed to start Drive import: ' + err.message);
+                btn.disabled = false;
+                btn.innerHTML = 'Continue Processing';
+            }
+        }
+
+        async function pollDriveImportStatus(jobId, btn) {
+            try {
+                const response = await fetch(`/status/${jobId}`);
+                const data = await response.json();
+
+                document.getElementById('progress-fill').style.width = data.progress + '%';
+                document.getElementById('progress-percent').textContent = data.progress + '%';
+                document.getElementById('progress-status').textContent = data.message;
+
+                if (data.status === 'review_pending' || data.redirect_url) {
+                    const redirectUrl = data.redirect_url || `/step3_review/${jobId}`;
+                    showResult(true, 'Import complete! Redirecting...');
+                    setTimeout(() => {
+                        window.location.href = redirectUrl;
+                    }, 1500);
+                } else if (data.status === 'error') {
+                    showResult(false, data.message || 'Import failed');
+                    btn.disabled = false;
+                    btn.innerHTML = 'Continue Processing';
+                } else {
+                    // Continue polling
+                    setTimeout(() => pollDriveImportStatus(jobId, btn), 1000);
+                }
+            } catch (err) {
+                console.error('Poll error:', err);
+                setTimeout(() => pollDriveImportStatus(jobId, btn), 2000);
+            }
         }
 
         async function uploadZipFile() {

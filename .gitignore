@@ -57,6 +57,9 @@ datasets/
 .env.local
 .env.*.local
 
+# Google Drive credentials (sensitive)
+credentials/
+
 # Model cache
 .cache/
 models/
