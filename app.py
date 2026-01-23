@@ -830,11 +830,11 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
             print(f"  {stat['month']}: {stat['selected']}/{stat['total_photos']} ({stat['category_summary']})")
         print(f"{'='*60}\n")
 
-        # Auto-save both selected and not-selected photos organized by month
-        output_folder = save_photos_by_month(job_id, upload_dir, selected_photos, rejected_photos, month_stats)
-        if output_folder:
-            processing_jobs[job_id]['output_folder'] = output_folder
-            print(f"[Job {job_id}] Photos auto-saved to: {output_folder}")
+        # Auto-save disabled - uncomment below to re-enable
+        # output_folder = save_photos_by_month(job_id, upload_dir, selected_photos, rejected_photos, month_stats)
+        # if output_folder:
+        #     processing_jobs[job_id]['output_folder'] = output_folder
+        #     print(f"[Job {job_id}] Photos auto-saved to: {output_folder}")
 
     except Exception as e:
         print(f"[Job {job_id}] EXCEPTION: {str(e)}")
@@ -3287,6 +3287,7 @@ def finish_chunked_upload(dataset_name):
 @app.route('/process_reupload/<dataset_name>', methods=['POST'])
 def process_reupload(dataset_name):
     """Process re-uploaded photos using saved face results from Supabase."""
+    from werkzeug.exceptions import ClientDisconnected
     try:
         print(f"[Reupload] Starting reupload for dataset '{dataset_name}'")
 
@@ -3443,6 +3444,9 @@ def process_reupload(dataset_name):
             'redirect_url': f'/step3_review/{job_id}'
         })
 
+    except ClientDisconnected:
+        print(f"[Reupload] Client disconnected during upload (timeout)")
+        return jsonify({'error': 'Connection timeout - please retry with smaller batch or better connection'}), 408
     except Exception as e:
         import traceback
         traceback.print_exc()
