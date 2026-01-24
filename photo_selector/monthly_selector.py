@@ -733,8 +733,7 @@ class MonthlyPhotoSelector:
             min_cluster_size=min_cluster_size,
             min_samples=1,  # Relaxed: allows sparser clusters
             metric='euclidean',  # Euclidean on normalized vectors ≈ cosine distance
-            cluster_selection_method='eom',  # Excess of Mass for stable clusters
-            cluster_selection_epsilon=0.3  # Lower = more clusters, better separation
+            cluster_selection_method='eom'  # Excess of Mass for stable clusters
         )
 
         labels = clusterer.fit_predict(embedding_matrix)
@@ -798,7 +797,7 @@ class MonthlyPhotoSelector:
         3. Combine ALL photos and sort by score
         4. Select by score with:
            - Event diversity: one photo per event_id
-           - Time+CLIP duplicate check: skip if >75% similar AND <60s apart
+           - Visual similarity check: skip if >80% similar to selected
 
         This ensures high-quality photos are selected regardless of cluster status
         (a 74% "noise" photo beats a 73% clustered photo).
@@ -820,7 +819,7 @@ class MonthlyPhotoSelector:
         print(f"\n  [Quality-First Selection] Target: {target} photos (have {len(photos)})")
 
         # Step 0: Assign event_ids based on timestamps
-        photos = self.assign_event_ids(photos, time_window_minutes=5)
+        photos = self.assign_event_ids(photos, time_window_minutes=30)
 
         # Step 1: Cluster photos with HDBSCAN (for cluster_id info in results)
         clusters = self.cluster_photos_hdbscan(photos, embeddings)
@@ -839,20 +838,13 @@ class MonthlyPhotoSelector:
         selected = []
         selected_files = set()
         used_event_ids = set()
+        used_cluster_ids = set()
 
-        # Time+CLIP duplicate detection thresholds
-        similarity_threshold = 0.75  # CLIP similarity threshold
-        time_threshold_seconds = 60  # Time proximity threshold (1 minute)
+        cross_cluster_threshold = 0.80  # Skip if >80% similar
 
         def get_max_similarity(candidate, selected_list, same_cluster_only=False):
             """
-            Check if candidate is too similar to already selected using TIME+CLIP approach.
-
-            A photo is considered a duplicate only if BOTH conditions are met:
-            1. CLIP similarity > 75% (visually similar)
-            2. Time difference < 60 seconds (same moment)
-
-            This prevents rejecting photos of the same person at different events.
+            Check if candidate is too similar to already selected.
 
             Args:
                 candidate: Photo to check
@@ -864,7 +856,6 @@ class MonthlyPhotoSelector:
             """
             candidate_emb = embeddings.get(candidate['filename'])
             candidate_cluster = candidate.get('cluster_id', -1)
-            candidate_ts = candidate.get('timestamp')
             max_sim = 0.0
             max_sim_photo = None
 
@@ -882,33 +873,15 @@ class MonthlyPhotoSelector:
                         if sim > max_sim:
                             max_sim = sim
                             max_sim_photo = sel['filename']
-
-                        # TIME+CLIP duplicate detection:
-                        # Only consider as duplicate if BOTH high similarity AND close in time
-                        if sim > similarity_threshold:
-                            sel_ts = sel.get('timestamp')
-                            # Check time proximity
-                            if candidate_ts is not None and sel_ts is not None:
-                                time_diff = abs(candidate_ts - sel_ts)
-                                if time_diff < time_threshold_seconds:
-                                    # Both conditions met: high similarity + close in time
-                                    return True, max_sim, max_sim_photo
-                                # High similarity but far apart in time = different event, OK to keep
-                            else:
-                                # No timestamp available, fall back to similarity-only check
-                                # Use stricter threshold when we can't check time
-                                if sim > 0.85:
-                                    return True, max_sim, max_sim_photo
+                        if sim > cross_cluster_threshold:
+                            return True, max_sim, max_sim_photo
 
             return False, max_sim, max_sim_photo
 
-        # Pass 1: Strict diversity - max 1 per event, max 1 per cluster, + time+clip check
-        print(f"\n  Selecting by quality score with event + cluster diversity + time+CLIP check...")
-        print(f"  Pass 1: Max 1 per event, max 1 per cluster, time+CLIP duplicate detection (>{similarity_threshold*100:.0f}% sim + <{time_threshold_seconds}s)")
+        print(f"\n  Selecting by quality score with event + cluster diversity...")
         skipped_event = 0
         skipped_cluster = 0
         skipped_similar = 0
-        used_cluster_ids = set()
 
         for photo in all_photos:
             if len(selected) >= target:
@@ -917,7 +890,7 @@ class MonthlyPhotoSelector:
             event_id = photo.get('event_id', -1)
             cluster_id = photo.get('cluster_id', -1)
 
-            # Diversity constraint 1: Skip if already picked from this event (same timestamp burst)
+            # Diversity constraint 1: Skip if already picked from this event
             if event_id != -1 and event_id in used_event_ids:
                 skipped_event += 1
                 continue
@@ -927,7 +900,7 @@ class MonthlyPhotoSelector:
                 skipped_cluster += 1
                 continue
 
-            # Diversity constraint 3: Skip if too similar (time+CLIP) to already selected
+            # Diversity constraint 3: Skip if too similar to already selected (cross-cluster check)
             should_skip, max_sim, _ = get_max_similarity(photo, selected, same_cluster_only=False)
             if should_skip:
                 skipped_similar += 1
@@ -946,29 +919,15 @@ class MonthlyPhotoSelector:
         print(f"  Selected: {len(selected)}")
         print(f"  Skipped (same event): {skipped_event}")
         print(f"  Skipped (same cluster): {skipped_cluster}")
-        print(f"  Skipped (time+CLIP duplicate): {skipped_similar}")
+        print(f"  Skipped (too similar): {skipped_similar}")
 
-        # If we still need more photos, relax event constraint
+        # If we still need more photos, relax event constraint in two sub-passes
         if len(selected) < target:
             remaining = target - len(selected)
             print(f"\n  [Relaxed pass] Need {remaining} more...")
 
-            # Sub-pass 1: Allow 2nd photo per event and per cluster (still check similarity)
-            print(f"  Sub-pass 1: Allowing max 2 per event, max 2 per cluster...")
-
-            event_counts = {}
-            cluster_counts = {}
-            for sel in selected:
-                eid = sel.get('event_id', -1)
-                cid = sel.get('cluster_id', -1)
-                if eid != -1:
-                    event_counts[eid] = event_counts.get(eid, 0) + 1
-                if cid != -1:
-                    cluster_counts[cid] = cluster_counts.get(cid, 0) + 1
-
-            max_per_event = 2
-            max_per_cluster = 2
-
+            # Sub-pass 1: Pick from new event OR new cluster
+            print(f"  Sub-pass 1: Prioritizing new events OR new clusters...")
             for photo in all_photos:
                 if len(selected) >= target:
                     break
@@ -979,12 +938,12 @@ class MonthlyPhotoSelector:
                 event_id = photo.get('event_id', -1)
                 cluster_id = photo.get('cluster_id', -1)
 
-                # Check event limit
-                if event_id != -1 and event_counts.get(event_id, 0) >= max_per_event:
-                    continue
+                # Check if this is a new event or new cluster
+                is_new_event = event_id == -1 or event_id not in used_event_ids
+                is_new_cluster = cluster_id == -1 or cluster_id not in used_cluster_ids
 
-                # Check cluster limit
-                if cluster_id != -1 and cluster_counts.get(cluster_id, 0) >= max_per_cluster:
+                # Accept if: new event OR new cluster
+                if not is_new_event and not is_new_cluster:
                     continue
 
                 should_skip, max_sim, _ = get_max_similarity(photo, selected, same_cluster_only=False)
@@ -992,19 +951,34 @@ class MonthlyPhotoSelector:
                     continue
 
                 photo['max_similarity'] = round(max_sim, 4)
-                photo['selection_reason'] = "Quality (relaxed limits)"
+                photo['selection_reason'] = "Quality (new event/cluster)"
                 selected.append(photo)
                 selected_files.add(photo['filename'])
                 if event_id != -1:
-                    event_counts[event_id] = event_counts.get(event_id, 0) + 1
+                    used_event_ids.add(event_id)
                 if cluster_id != -1:
-                    cluster_counts[cluster_id] = cluster_counts.get(cluster_id, 0) + 1
+                    used_cluster_ids.add(cluster_id)
 
             print(f"  After sub-pass 1: {len(selected)} photos")
 
-            # Sub-pass 2: Final fallback - just pick by quality (no event limits, only time+CLIP check)
+            # Sub-pass 2: Allow 2nd photo per event AND per cluster
             if len(selected) < target:
-                print(f"  Sub-pass 2: Final quality fallback (only time+CLIP check)...")
+                print(f"  Sub-pass 2: Allowing 2nd photo per event/cluster...")
+
+                # Count photos per event AND per cluster
+                event_counts = {}
+                cluster_counts = {}
+                for sel in selected:
+                    eid = sel.get('event_id', -1)
+                    cid = sel.get('cluster_id', -1)
+                    if eid != -1:
+                        event_counts[eid] = event_counts.get(eid, 0) + 1
+                    if cid != -1:
+                        cluster_counts[cid] = cluster_counts.get(cid, 0) + 1
+
+                max_per_event = 2
+                max_per_cluster = 2
+
                 for photo in all_photos:
                     if len(selected) >= target:
                         break
@@ -1012,7 +986,41 @@ class MonthlyPhotoSelector:
                     if photo['filename'] in selected_files:
                         continue
 
-                    # Only check similarity to catch actual duplicates
+                    event_id = photo.get('event_id', -1)
+                    cluster_id = photo.get('cluster_id', -1)
+
+                    # Check both limits
+                    if event_id != -1 and event_counts.get(event_id, 0) >= max_per_event:
+                        continue
+                    if cluster_id != -1 and cluster_counts.get(cluster_id, 0) >= max_per_cluster:
+                        continue
+
+                    should_skip, max_sim, _ = get_max_similarity(photo, selected, same_cluster_only=False)
+                    if should_skip:
+                        continue
+
+                    photo['max_similarity'] = round(max_sim, 4)
+                    photo['selection_reason'] = "Quality (2nd from event/cluster)"
+                    selected.append(photo)
+                    selected_files.add(photo['filename'])
+                    if event_id != -1:
+                        event_counts[event_id] = event_counts.get(event_id, 0) + 1
+                    if cluster_id != -1:
+                        cluster_counts[cluster_id] = cluster_counts.get(cluster_id, 0) + 1
+
+                print(f"  After sub-pass 2: {len(selected)} photos")
+
+            # Sub-pass 3: Final fallback - just pick by quality (no event/cluster limits)
+            if len(selected) < target:
+                print(f"  Sub-pass 3: Final quality fallback...")
+                for photo in all_photos:
+                    if len(selected) >= target:
+                        break
+
+                    if photo['filename'] in selected_files:
+                        continue
+
+                    # In fallback, still check cross-cluster similarity to catch any duplicates
                     should_skip, max_sim, _ = get_max_similarity(photo, selected, same_cluster_only=False)
                     if should_skip:
                         continue
@@ -1022,7 +1030,7 @@ class MonthlyPhotoSelector:
                     selected.append(photo)
                     selected_files.add(photo['filename'])
 
-                print(f"  After sub-pass 2: {len(selected)} photos")
+                print(f"  After sub-pass 3: {len(selected)} photos")
 
         # Log category distribution
         final_cats = defaultdict(int)
@@ -1032,28 +1040,18 @@ class MonthlyPhotoSelector:
         print(f"\n  Final selection: {len(selected)} photos")
         print(f"  Category distribution: {dict(final_cats)}")
 
-        # Build lookup maps for debugging: count how many photos selected per event/cluster
-        event_counts_final = {}
-        cluster_counts_final = {}
-        event_to_photos = {}  # Maps event_id -> list of selected filenames
-        cluster_to_photos = {}  # Maps cluster_id -> list of selected filenames
-
+        # Build lookup maps for debugging: which photo used which event/cluster
+        event_to_photo = {}
+        cluster_to_photo = {}
         for sel in selected:
             eid = sel.get('event_id', -1)
             cid = sel.get('cluster_id', -1)
-            if eid != -1:
-                event_counts_final[eid] = event_counts_final.get(eid, 0) + 1
-                if eid not in event_to_photos:
-                    event_to_photos[eid] = []
-                event_to_photos[eid].append(sel['filename'])
-            if cid != -1:
-                cluster_counts_final[cid] = cluster_counts_final.get(cid, 0) + 1
-                if cid not in cluster_to_photos:
-                    cluster_to_photos[cid] = []
-                cluster_to_photos[cid].append(sel['filename'])
+            if eid != -1 and eid not in event_to_photo:
+                event_to_photo[eid] = sel['filename']
+            if cid != -1 and cid not in cluster_to_photo:
+                cluster_to_photo[cid] = sel['filename']
 
         # Mark rejection reasons for unselected photos (for debugging)
-        # Accurately determine why each photo wasn't selected
         print(f"\n  Marking rejection reasons for unselected photos...")
         for photo in all_photos:
             if photo['filename'] in selected_files:
@@ -1062,27 +1060,22 @@ class MonthlyPhotoSelector:
             event_id = photo.get('event_id', -1)
             cluster_id = photo.get('cluster_id', -1)
 
-            # Check similarity first - this is checked in ALL passes
-            should_skip, max_sim, most_similar_photo = get_max_similarity(photo, selected, same_cluster_only=False)
-            photo['max_similarity'] = round(max_sim, 4)
-
-            if should_skip:
-                # Similarity was the blocker
-                photo['rejection_reason'] = f"Too similar ({max_sim*100:.1f}%) to {most_similar_photo or 'unknown'}"
-            elif len(selected) >= target:
-                # Target was reached before this photo could be considered
-                photo['rejection_reason'] = "Target reached"
-            elif event_id != -1 and event_counts_final.get(event_id, 0) >= 2:
-                # Event hit max limit (2)
-                blocking_photos = event_to_photos.get(event_id, ['unknown'])
-                photo['rejection_reason'] = f"Event {event_id} full (2 selected: {', '.join(blocking_photos[:2])})"
-            elif cluster_id != -1 and cluster_counts_final.get(cluster_id, 0) >= 2:
-                # Cluster hit max limit (2)
-                blocking_photos = cluster_to_photos.get(cluster_id, ['unknown'])
-                photo['rejection_reason'] = f"Cluster {cluster_id} full (2 selected: {', '.join(blocking_photos[:2])})"
+            # Determine why this photo wasn't selected
+            if event_id != -1 and event_id in used_event_ids:
+                blocking_photo = event_to_photo.get(event_id, 'unknown')
+                photo['rejection_reason'] = f"Event {event_id} used by {blocking_photo}"
+            elif cluster_id != -1 and cluster_id in used_cluster_ids:
+                blocking_photo = cluster_to_photo.get(cluster_id, 'unknown')
+                photo['rejection_reason'] = f"Cluster {cluster_id} used by {blocking_photo}"
             else:
-                # Lower quality score than selected photos
-                photo['rejection_reason'] = "Lower quality score"
+                # Check similarity to selected photos (cross-cluster to catch any duplicates)
+                should_skip, max_sim, most_similar_photo = get_max_similarity(photo, selected, same_cluster_only=False)
+                photo['max_similarity'] = round(max_sim, 4)
+                if should_skip:
+                    photo['rejection_reason'] = f"Too similar ({max_sim*100:.1f}%) to {most_similar_photo or 'unknown'}"
+                else:
+                    # Would have been selected but target was already reached
+                    photo['rejection_reason'] = "Target reached"
 
         return selected
 

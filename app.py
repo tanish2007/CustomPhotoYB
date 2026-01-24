@@ -270,10 +270,52 @@ def process_photos_face_filter_only(job_id, upload_dir, session_id=None):
         # Sort by face match score (highest first)
         filtered_photos.sort(key=lambda x: x['face_match_score'], reverse=True)
 
+        # Prepare unmatched photos data (photos where target was NOT found)
+        unmatched_photos = []
+        for unmatch in filter_results.get('unmatched_photos', []):
+            filename = os.path.basename(unmatch['path'])
+            # Get timestamp from EXIF if available
+            timestamp = None
+            try:
+                from photo_selector.utils import get_photo_timestamp
+                dt = get_photo_timestamp(unmatch['path'])
+                if dt:
+                    timestamp = dt.timestamp()
+            except:
+                pass
+            unmatched_photos.append({
+                'filename': filename,
+                'best_similarity': unmatch.get('best_similarity', 0),
+                'num_faces': unmatch.get('num_faces', 0),
+                'timestamp': timestamp
+            })
+
+        # Also include photos with no faces detected
+        for no_face in filter_results.get('no_faces_photos', []):
+            filename = os.path.basename(no_face['path'])
+            timestamp = None
+            try:
+                from photo_selector.utils import get_photo_timestamp
+                dt = get_photo_timestamp(no_face['path'])
+                if dt:
+                    timestamp = dt.timestamp()
+            except:
+                pass
+            unmatched_photos.append({
+                'filename': filename,
+                'best_similarity': 0,
+                'num_faces': 0,
+                'timestamp': timestamp
+            })
+
+        # Sort unmatched by timestamp
+        unmatched_photos.sort(key=lambda x: x.get('timestamp') or 0)
+
         # Store results for review
         review_data = {
             'total_uploaded': total_photos,
             'filtered_photos': filtered_photos,
+            'unmatched_photos': unmatched_photos,
             'statistics': filter_results['statistics'],
             'reference_count': face_matcher.get_reference_count()
         }
@@ -489,7 +531,7 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
         processing_jobs[job_id]['message'] = 'Loading AI models...'
 
         # Import the new monthly selector
-        from photo_selector.embeddings import PhotoEmbedder
+        from photo_selector.siglip_embeddings import SigLIPEmbedder
         from photo_selector.monthly_selector import MonthlyPhotoSelector
 
         # Determine target per month based on quality mode
@@ -504,11 +546,11 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
 
         # Step 1: Generate embeddings for confirmed photos
         processing_jobs[job_id]['progress'] = 10
-        processing_jobs[job_id]['message'] = 'Analyzing photos with CLIP AI...'
+        processing_jobs[job_id]['message'] = 'Analyzing photos with SigLIP AI...'
 
-        print(f"[Job {job_id}] Generating CLIP embeddings for {len(confirmed_photos)} photos...")
+        print(f"[Job {job_id}] Generating SigLIP embeddings for {len(confirmed_photos)} photos...")
 
-        embedder = PhotoEmbedder()
+        embedder = SigLIPEmbedder()
         embeddings = {}
 
         for i, filename in enumerate(confirmed_photos):
@@ -855,17 +897,17 @@ def process_photos_automatic(job_id, upload_dir, quality_mode, similarity_thresh
         processing_jobs[job_id]['message'] = 'Loading AI models...'
 
         # Import pipeline components
-        from photo_selector.embeddings import PhotoEmbedder
+        from photo_selector.siglip_embeddings import SigLIPEmbedder
         from photo_selector.temporal import TemporalSegmenter
         from photo_selector.clustering import PhotoClusterer, BucketClusterManager
         from photo_selector.scoring import PhotoScorer, ClusterScorer
         from photo_selector.auto_selector import SmartPhotoSelector, SelectionReason
 
-        # Step 1: Embeddings
+        # Step 1: Embeddings (SigLIP for better visual understanding)
         processing_jobs[job_id]['progress'] = 20
-        processing_jobs[job_id]['message'] = 'Analyzing photos with CLIP AI...'
+        processing_jobs[job_id]['message'] = 'Analyzing photos with SigLIP AI...'
 
-        embedder = PhotoEmbedder()
+        embedder = SigLIPEmbedder()
         embeddings = embedder.process_folder(upload_dir)
 
         processing_jobs[job_id]['progress'] = 40
@@ -882,8 +924,9 @@ def process_photos_automatic(job_id, upload_dir, quality_mode, similarity_thresh
         processing_jobs[job_id]['progress'] = 50
         processing_jobs[job_id]['message'] = 'Grouping similar photos (adaptive clustering)...'
 
-        # Step 3: Clustering (HDBSCAN automatically finds natural groupings)
-        clusterer = BucketClusterManager(PhotoClusterer(method="hdbscan", min_cluster_size=3, temporal_gap_hours=6.0))
+        # Step 3: Clustering (HDBSCAN with timestamp-weighted features, 24h gap splitting)
+        # min_cluster_size=5 reduces single-photo clusters by requiring at least 5 similar photos
+        clusterer = BucketClusterManager(PhotoClusterer(method="hdbscan", min_cluster_size=5, temporal_gap_hours=24.0, timestamp_weight=0.3))
         cluster_results = clusterer.cluster_all_buckets(buckets, embeddings, targets, use_adaptive=False)
 
         processing_jobs[job_id]['progress'] = 60
@@ -1396,8 +1439,8 @@ def import_from_drive():
     if not folder_url:
         return jsonify({'error': 'Please provide a folder URL'}), 400
 
-    # Get face session
-    face_session_id = session.get('face_session_id')
+    # Get face session (step 1 stores it as 'session_id')
+    face_session_id = session.get('session_id')
     has_references = False
     ref_count = 0
     if face_session_id and face_session_id in face_matchers:
@@ -1450,7 +1493,8 @@ def import_from_drive():
                 processing_jobs[job_id]['message'] = result.get('message', 'Download failed')
                 return
 
-            downloaded_count = result.get('downloaded', 0)
+            downloaded_count = result.get('downloaded', 0) + result.get('skipped', 0)
+            downloaded_files = result.get('files', [])
             processing_jobs[job_id]['total_uploaded'] = downloaded_count
             processing_jobs[job_id]['total_files'] = downloaded_count
 
@@ -1461,8 +1505,9 @@ def import_from_drive():
                 processing_jobs[job_id]['message'] = f'Scanning {downloaded_count} photos for faces...'
                 process_photos_face_filter_only(job_id, upload_dir, face_session_id)
             else:
+                # No face filtering - use all downloaded photos as confirmed
                 processing_jobs[job_id]['message'] = f'Selecting best from {downloaded_count} photos...'
-                process_photos_quality_selection(job_id, upload_dir, quality_mode, similarity_threshold)
+                process_photos_quality_selection(job_id, upload_dir, quality_mode, similarity_threshold, downloaded_files)
 
         except Exception as e:
             print(f"[Job {job_id}] Drive import error: {e}")
@@ -1863,9 +1908,28 @@ def get_results(job_id):
 
 @app.route('/thumbnail/<job_id>/<filename>')
 def get_thumbnail(job_id, filename):
-    """Serve thumbnail images."""
+    """Serve thumbnail images, generating on-demand if needed."""
     thumb_dir = os.path.join(UPLOAD_FOLDER, job_id, 'thumbnails')
-    return send_from_directory(thumb_dir, filename)
+    thumb_name = get_thumbnail_name(filename)
+    thumb_path = os.path.join(thumb_dir, thumb_name)
+
+    # If thumbnail exists, serve it
+    if os.path.exists(thumb_path):
+        return send_from_directory(thumb_dir, thumb_name)
+
+    # Generate thumbnail on-demand for unmatched photos
+    original_path = os.path.join(UPLOAD_FOLDER, job_id, filename)
+    if os.path.exists(original_path):
+        os.makedirs(thumb_dir, exist_ok=True)
+        create_thumbnail(original_path, thumb_path)
+        if os.path.exists(thumb_path):
+            return send_from_directory(thumb_dir, thumb_name)
+
+    # Fallback - try to serve the original filename from thumbnails
+    if os.path.exists(os.path.join(thumb_dir, filename)):
+        return send_from_directory(thumb_dir, filename)
+
+    return jsonify({'error': 'Thumbnail not found'}), 404
 
 
 @app.route('/photo/<job_id>/<filename>')
@@ -1935,9 +1999,11 @@ def get_photo(job_id, filename):
 
 @app.route('/download/<job_id>')
 def download_selected(job_id):
-    """Download selected photos as zip."""
+    """Download selected photos as zip with timestamp-sorted naming."""
     import zipfile
     from io import BytesIO
+    from datetime import datetime
+    from collections import defaultdict
 
     if job_id not in processing_jobs:
         return jsonify({'error': 'Job not found'}), 404
@@ -1956,15 +2022,83 @@ def download_selected(job_id):
     if not upload_dir:
         return jsonify({'error': 'Upload directory not found'}), 404
 
-    # Create zip file
+    # Month abbreviations
+    MONTH_ABBREV = {
+        1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr",
+        5: "May", 6: "Jun", 7: "Jul", 8: "Aug",
+        9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"
+    }
+
+    # Import timestamp extractor
+    from photo_selector.utils import get_photo_timestamp
+
+    # Group photos by month and sort by timestamp
+    photos_by_month = defaultdict(list)
+    photos_no_timestamp = []
+
+    for photo in selected:
+        filename = photo.get('filename', '')
+        ts = photo.get('timestamp')
+
+        # If no timestamp stored, try to extract it from the photo file
+        if not ts:
+            photo_path = os.path.join(upload_dir, filename)
+            if os.path.exists(photo_path):
+                dt = get_photo_timestamp(photo_path)
+                if dt:
+                    ts = dt.timestamp()
+
+        if ts:
+            dt = datetime.fromtimestamp(ts)
+            month_key = (dt.year, dt.month)  # Group by year-month to handle multi-year datasets
+            photos_by_month[month_key].append({
+                'filename': filename,
+                'timestamp': ts,
+                'datetime': dt
+            })
+        else:
+            photos_no_timestamp.append({'filename': filename, 'timestamp': 0})
+
+    # Sort photos within each month by timestamp
+    for month_key in photos_by_month:
+        photos_by_month[month_key].sort(key=lambda x: x['timestamp'])
+
+    # Create zip file with renamed files
     memory_file = BytesIO()
     files_added = 0
     with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for photo in selected:
-            filename = photo.get('filename', '')
-            photo_path = os.path.join(upload_dir, filename)
+        # Add photos with timestamps (sorted and renamed)
+        for month_key in sorted(photos_by_month.keys()):
+            year, month = month_key
+            month_abbrev = MONTH_ABBREV[month]
+            photos = photos_by_month[month_key]
+
+            for idx, photo in enumerate(photos, start=1):
+                original_filename = photo['filename']
+                photo_path = os.path.join(upload_dir, original_filename)
+
+                if os.path.exists(photo_path):
+                    # Create new filename: Jan_1_originalname.jpg
+                    ext = os.path.splitext(original_filename)[1]
+                    base_name = os.path.splitext(original_filename)[0]
+                    new_filename = f"{month_abbrev}_{idx}_{base_name}{ext}"
+
+                    zf.write(photo_path, new_filename)
+                    files_added += 1
+                else:
+                    print(f"[Download] File not found: {photo_path}")
+
+        # Add photos without timestamps at the end with "NoDate" prefix
+        for idx, photo in enumerate(photos_no_timestamp, start=1):
+            original_filename = photo['filename']
+            photo_path = os.path.join(upload_dir, original_filename)
+
             if os.path.exists(photo_path):
-                zf.write(photo_path, filename)
+                ext = os.path.splitext(original_filename)[1]
+                base_name = os.path.splitext(original_filename)[0]
+                new_filename = f"NoDate_{idx}_{base_name}{ext}"
+
+                zf.write(photo_path, new_filename)
                 files_added += 1
             else:
                 print(f"[Download] File not found: {photo_path}")
@@ -2021,6 +2155,123 @@ def download_filtered(job_id):
         mimetype='application/zip',
         as_attachment=True,
         download_name=f'filtered_photos_{job_id}.zip'
+    )
+
+
+@app.route('/download_unmatched/<job_id>')
+def download_unmatched(job_id):
+    """Download photos where target person was NOT detected, with timestamp-sorted naming."""
+    import zipfile
+    from io import BytesIO
+    from datetime import datetime
+    from collections import defaultdict
+
+    if job_id not in processing_jobs:
+        return jsonify({'error': 'Job not found'}), 404
+
+    job = processing_jobs[job_id]
+    upload_dir = job.get('upload_dir', '')
+
+    if not upload_dir:
+        return jsonify({'error': 'Upload directory not found'}), 404
+
+    # Get unmatched photos from review data
+    unmatched_photos = []
+    if 'review_data' in job:
+        unmatched_photos = job['review_data'].get('unmatched_photos', [])
+    else:
+        # Try to load from file
+        review_file = os.path.join(RESULTS_FOLDER, f"{job_id}_review.json")
+        if os.path.exists(review_file):
+            with open(review_file, 'r') as f:
+                review_data = json.load(f)
+            unmatched_photos = review_data.get('unmatched_photos', [])
+
+    if not unmatched_photos:
+        return jsonify({'error': 'No unmatched photos found'}), 404
+
+    # Month abbreviations
+    MONTH_ABBREV = {
+        1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr",
+        5: "May", 6: "Jun", 7: "Jul", 8: "Aug",
+        9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"
+    }
+
+    # Import timestamp extractor
+    from photo_selector.utils import get_photo_timestamp
+
+    # Group photos by month and sort by timestamp
+    photos_by_month = defaultdict(list)
+    photos_no_timestamp = []
+
+    for photo in unmatched_photos:
+        filename = photo.get('filename', '')
+        ts = photo.get('timestamp')
+
+        # If no timestamp stored, try to extract it from the photo file
+        if not ts:
+            photo_path = os.path.join(upload_dir, filename)
+            if os.path.exists(photo_path):
+                dt = get_photo_timestamp(photo_path)
+                if dt:
+                    ts = dt.timestamp()
+
+        if ts:
+            dt = datetime.fromtimestamp(ts)
+            month_key = (dt.year, dt.month)
+            photos_by_month[month_key].append({
+                'filename': filename,
+                'timestamp': ts
+            })
+        else:
+            photos_no_timestamp.append({'filename': filename})
+
+    # Sort photos within each month by timestamp
+    for month_key in photos_by_month:
+        photos_by_month[month_key].sort(key=lambda x: x['timestamp'])
+
+    # Create zip file with renamed files
+    memory_file = BytesIO()
+    files_added = 0
+    with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
+        # Add photos with timestamps (sorted and renamed)
+        for month_key in sorted(photos_by_month.keys()):
+            year, month = month_key
+            month_abbrev = MONTH_ABBREV[month]
+            photos = photos_by_month[month_key]
+
+            for idx, photo in enumerate(photos, start=1):
+                original_filename = photo['filename']
+                photo_path = os.path.join(upload_dir, original_filename)
+
+                if os.path.exists(photo_path):
+                    ext = os.path.splitext(original_filename)[1]
+                    base_name = os.path.splitext(original_filename)[0]
+                    new_filename = f"{month_abbrev}_{idx}_{base_name}{ext}"
+                    zf.write(photo_path, new_filename)
+                    files_added += 1
+
+        # Add photos without timestamps at the end
+        for idx, photo in enumerate(photos_no_timestamp, start=1):
+            original_filename = photo['filename']
+            photo_path = os.path.join(upload_dir, original_filename)
+
+            if os.path.exists(photo_path):
+                ext = os.path.splitext(original_filename)[1]
+                base_name = os.path.splitext(original_filename)[0]
+                new_filename = f"NoDate_{idx}_{base_name}{ext}"
+                zf.write(photo_path, new_filename)
+                files_added += 1
+
+    if files_added == 0:
+        return jsonify({'error': 'No files found in upload directory'}), 404
+
+    memory_file.seek(0)
+    return send_file(
+        memory_file,
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name=f'unmatched_photos_{job_id}.zip'
     )
 
 
@@ -2528,7 +2779,7 @@ def process_test_month(job_id, folder_path, target, thumb_dir, organize_by_month
     """
     try:
         from photo_selector.monthly_selector import MonthlyPhotoSelector, CategoryDetector
-        from photo_selector.embeddings import PhotoEmbedder
+        from photo_selector.siglip_embeddings import SigLIPEmbedder
         from photo_selector.scoring import PhotoScorer
         from datetime import datetime
 
@@ -2540,15 +2791,15 @@ def process_test_month(job_id, folder_path, target, thumb_dir, organize_by_month
                        if os.path.splitext(f.lower())[1] in extensions]
         photo_paths = [os.path.join(folder_path, f) for f in photo_files]
 
-        job['message'] = 'Loading CLIP model...'
+        job['message'] = 'Loading SigLIP model...'
         job['progress'] = 5
 
         # Initialize embedder and selector
-        embedder = PhotoEmbedder()
+        embedder = SigLIPEmbedder()
         selector = MonthlyPhotoSelector()
 
         # Step 1: Generate embeddings
-        job['message'] = f'Generating embeddings for {len(photo_paths)} photos...'
+        job['message'] = f'Generating SigLIP embeddings for {len(photo_paths)} photos...'
         job['progress'] = 10
         embeddings = embedder.process_folder(folder_path)
         job['progress'] = 30

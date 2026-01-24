@@ -18,20 +18,23 @@ warnings.filterwarnings('ignore', category=FutureWarning)
 class PhotoClusterer:
     """Cluster photos within time buckets for diversity."""
 
-    def __init__(self, method: str = "hdbscan", min_cluster_size: int = 3,
-                 temporal_gap_hours: float = 6.0):
+    def __init__(self, method: str = "hdbscan", min_cluster_size: int = 5,
+                 temporal_gap_hours: float = 24.0, timestamp_weight: float = 0.3):
         """
         Initialize clusterer.
 
         Args:
             method: "kmeans", "hierarchical", or "hdbscan"
-            min_cluster_size: Minimum cluster size for HDBSCAN (default: 3)
-            temporal_gap_hours: Hours gap to split clusters into separate events (default: 6.0)
+            min_cluster_size: Minimum cluster size for HDBSCAN (default: 5)
+            temporal_gap_hours: Hours gap to split clusters into separate events (default: 24.0)
                               Set to None to disable temporal splitting
+            timestamp_weight: Weight for timestamps in combined features (default: 0.3)
+                              0.0 = ignore timestamps, 1.0 = timestamps equally important as embeddings
         """
         self.method = method
         self.min_cluster_size = min_cluster_size
         self.temporal_gap_hours = temporal_gap_hours
+        self.timestamp_weight = timestamp_weight
 
     def determine_num_clusters(self, num_photos: int,
                                 target_selection: int) -> int:
@@ -140,6 +143,75 @@ class PhotoClusterer:
         print(f"  -> Optimal K={best_k} (silhouette={best_score:.3f})")
         return best_k
 
+    def _normalize_timestamps(self, timestamps: List[datetime]) -> np.ndarray:
+        """
+        Normalize timestamps to a [0, 1] scale for combining with embeddings.
+
+        Args:
+            timestamps: List of datetime objects
+
+        Returns:
+            Normalized timestamp values as numpy array of shape (n, 1)
+        """
+        # Convert to unix timestamps
+        unix_times = []
+        for ts in timestamps:
+            if ts is not None:
+                unix_times.append(ts.timestamp())
+            else:
+                unix_times.append(None)
+
+        # Handle missing timestamps with mean imputation
+        valid_times = [t for t in unix_times if t is not None]
+        if not valid_times:
+            # No valid timestamps, return zeros
+            return np.zeros((len(timestamps), 1))
+
+        mean_time = np.mean(valid_times)
+        unix_times = [t if t is not None else mean_time for t in unix_times]
+
+        # Normalize to [0, 1]
+        min_time = min(unix_times)
+        max_time = max(unix_times)
+
+        if max_time == min_time:
+            # All same timestamp
+            return np.zeros((len(timestamps), 1))
+
+        normalized = [(t - min_time) / (max_time - min_time) for t in unix_times]
+        return np.array(normalized).reshape(-1, 1)
+
+    def _combine_embeddings_with_timestamps(self, embeddings: np.ndarray,
+                                            timestamps: List[datetime]) -> np.ndarray:
+        """
+        Combine visual embeddings with normalized timestamps for clustering.
+
+        This helps cluster photos that are both visually similar AND temporally close.
+
+        Args:
+            embeddings: Visual embeddings array of shape (n, embedding_dim)
+            timestamps: List of datetime objects
+
+        Returns:
+            Combined feature array
+        """
+        if self.timestamp_weight <= 0 or timestamps is None:
+            return embeddings
+
+        # Normalize timestamps
+        normalized_ts = self._normalize_timestamps(timestamps)
+
+        # Scale timestamp features to be comparable to embedding dimensions
+        # Embeddings are typically ~512 or 768 dimensions, each normalized
+        # We scale the single timestamp dimension to have similar influence
+        embedding_scale = np.sqrt(embeddings.shape[1])  # ~22 for 512-dim, ~28 for 768-dim
+        scaled_ts = normalized_ts * embedding_scale * self.timestamp_weight
+
+        # Concatenate
+        combined = np.hstack([embeddings, scaled_ts])
+
+        return combined
+
     def split_cluster_by_temporal_gaps(self, photo_indices: List[int],
                                       timestamps: List[datetime]) -> List[List[int]]:
         """
@@ -226,18 +298,31 @@ class PhotoClusterer:
                        num_clusters: int = None,
                        timestamps: Optional[List[datetime]] = None) -> np.ndarray:
         """
-        Cluster photos based on their embeddings.
+        Cluster photos based on their embeddings with optional timestamp weighting.
 
         Args:
             embeddings: Array of shape (num_photos, embedding_dim)
             num_clusters: Number of clusters (ignored for HDBSCAN, which auto-determines)
-            timestamps: Optional list of timestamps for temporal gap splitting
+            timestamps: Optional list of timestamps for temporal-weighted clustering
 
         Returns:
             Array of cluster labels
         """
+        # Combine embeddings with timestamps if available and weight > 0
+        if timestamps is not None and self.timestamp_weight > 0:
+            # Check if enough timestamps are available (at least 50%)
+            valid_ts_count = sum(1 for ts in timestamps if ts is not None)
+            if valid_ts_count >= len(timestamps) * 0.5:
+                features = self._combine_embeddings_with_timestamps(embeddings, timestamps)
+                print(f"  -> Using timestamp-weighted features (weight={self.timestamp_weight})")
+            else:
+                features = embeddings
+                print(f"  -> Skipping timestamp weighting (only {valid_ts_count}/{len(timestamps)} have timestamps)")
+        else:
+            features = embeddings
+
         if self.method == "hdbscan":
-            num_photos = len(embeddings)
+            num_photos = len(features)
 
             # HDBSCAN requires at least 3 photos to work properly
             # For very small buckets, treat each photo as its own cluster
@@ -256,7 +341,7 @@ class PhotoClusterer:
                 metric='euclidean',
                 cluster_selection_method='eom'  # Excess of Mass for more stable clusters
             )
-            labels = clusterer.fit_predict(embeddings)
+            labels = clusterer.fit_predict(features)
 
             # HDBSCAN marks noise points as -1, we'll treat them as individual clusters
             # This ensures every photo gets assigned to a cluster

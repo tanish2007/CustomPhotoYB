@@ -25,6 +25,9 @@ except ImportError:
 SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
 CREDENTIALS_PATH = os.path.join(os.path.dirname(__file__), 'credentials', 'service_account.json')
 
+# Domain-wide delegation: impersonate this user (set to None for direct service account access)
+IMPERSONATED_USER = "team@rethinkyearbooks.com"
+
 # Supported image types
 IMAGE_MIMETYPES = [
     'image/jpeg',
@@ -55,6 +58,11 @@ def get_drive_service():
     creds = service_account.Credentials.from_service_account_file(
         CREDENTIALS_PATH, scopes=SCOPES
     )
+
+    # Use domain-wide delegation if configured
+    if IMPERSONATED_USER:
+        creds = creds.with_subject(IMPERSONATED_USER)
+
     return build('drive', 'v3', credentials=creds)
 
 
@@ -176,7 +184,8 @@ def download_folder(
     output_dir: str,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
     include_subfolders: bool = False,
-    max_workers: int = 10  # Parallel downloads
+    max_workers: int = 10,  # Parallel downloads (reduced for stability)
+    skip_existing: bool = True  # Skip already downloaded files (resume support)
 ) -> Dict:
     """
     Download all images from a Google Drive folder using parallel downloads.
@@ -187,9 +196,10 @@ def download_folder(
         progress_callback: Optional callback(current, total, filename) for progress updates
         include_subfolders: Whether to include subfolders
         max_workers: Number of parallel download threads (default 10)
+        skip_existing: Skip files that already exist (enables resume, default True)
 
     Returns:
-        Dict with 'success', 'downloaded', 'failed', 'total', 'files'
+        Dict with 'success', 'downloaded', 'failed', 'skipped', 'total', 'files'
     """
     os.makedirs(output_dir, exist_ok=True)
 
@@ -203,6 +213,7 @@ def download_folder(
             'success': True,
             'downloaded': 0,
             'failed': 0,
+            'skipped': 0,
             'total': 0,
             'files': [],
             'message': 'No images found in folder'
@@ -212,9 +223,19 @@ def download_folder(
 
     # Thread-safe counters
     lock = threading.Lock()
-    downloaded_count = [0]  # Use list for mutability in closure
+    downloaded_count = [0]
     failed_count = [0]
+    skipped_count = [0]
     downloaded_files = []
+
+    # Thread-local storage for service connections (each thread gets its own)
+    thread_local = threading.local()
+
+    def get_thread_service():
+        """Get or create a service connection for the current thread."""
+        if not hasattr(thread_local, 'service'):
+            thread_local.service = get_drive_service()
+        return thread_local.service
 
     def download_single_file(file_info):
         """Download a single file (runs in thread)."""
@@ -229,7 +250,13 @@ def download_folder(
         else:
             output_path = os.path.join(output_dir, filename)
 
-        # Handle duplicate filenames (thread-safe)
+        # Skip if file already exists (resume support)
+        if skip_existing and os.path.exists(output_path):
+            file_size = os.path.getsize(output_path)
+            if file_size > 0:  # Only skip if file has content
+                return (filename, 'skipped')
+
+        # Handle duplicate filenames (thread-safe) - only if not skipping
         with lock:
             if os.path.exists(output_path):
                 base, ext = os.path.splitext(filename)
@@ -240,14 +267,19 @@ def download_folder(
                     counter += 1
                 filename = os.path.basename(output_path)
 
-        # Each thread gets its own service connection
+        # Each thread has its own service connection (thread-safe)
         try:
-            service = get_drive_service()
+            service = get_thread_service()
             success = download_file(service, file_id, output_path)
-            return (filename, success)
+            return (filename, 'success' if success else 'failed')
         except Exception as e:
             print(f"[Drive] Error downloading {filename}: {e}")
-            return (filename, False)
+            # Try recreating service on error
+            try:
+                thread_local.service = get_drive_service()
+            except:
+                pass
+            return (filename, 'failed')
 
     # Parallel downloads using ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -256,13 +288,16 @@ def download_folder(
 
         completed = 0
         for future in as_completed(future_to_file):
-            filename, success = future.result()
+            filename, status = future.result()
             completed += 1
 
             with lock:
-                if success:
+                if status == 'success':
                     downloaded_count[0] += 1
                     downloaded_files.append(filename)
+                elif status == 'skipped':
+                    skipped_count[0] += 1
+                    downloaded_files.append(filename)  # Include skipped files in list
                 else:
                     failed_count[0] += 1
 
@@ -271,17 +306,22 @@ def download_folder(
                 progress_callback(completed, total, filename)
 
     downloaded = downloaded_count[0]
+    skipped = skipped_count[0]
     failed = failed_count[0]
 
-    print(f"[Drive] Download complete. Success: {downloaded}, Failed: {failed}")
+    if skipped > 0:
+        print(f"[Drive] Download complete. New: {downloaded}, Skipped: {skipped}, Failed: {failed}")
+    else:
+        print(f"[Drive] Download complete. Success: {downloaded}, Failed: {failed}")
 
     return {
         'success': failed == 0,
         'downloaded': downloaded,
+        'skipped': skipped,
         'failed': failed,
         'total': total,
         'files': downloaded_files,
-        'message': f'Downloaded {downloaded}/{total} files'
+        'message': f'Downloaded {downloaded}/{total} files' + (f' (skipped {skipped} existing)' if skipped > 0 else '')
     }
 
 
