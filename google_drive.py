@@ -111,7 +111,9 @@ def list_images_in_folder(folder_id: str, include_subfolders: bool = False) -> L
             q=query,
             fields="nextPageToken, files(id, name, mimeType, size)",
             pageSize=1000,  # Max allowed
-            pageToken=page_token
+            pageToken=page_token,
+            includeItemsFromAllDrives=True,  # Support Shared Drives
+            supportsAllDrives=True
         ).execute()
 
         files = results.get('files', [])
@@ -127,7 +129,9 @@ def list_images_in_folder(folder_id: str, include_subfolders: bool = False) -> L
         folder_query = f"'{folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
         folder_results = service.files().list(
             q=folder_query,
-            fields="files(id, name)"
+            fields="files(id, name)",
+            includeItemsFromAllDrives=True,  # Support Shared Drives
+            supportsAllDrives=True
         ).execute()
 
         for subfolder in folder_results.get('files', []):
@@ -294,8 +298,12 @@ def get_folder_info(folder_id: str) -> Dict:
     try:
         service = get_drive_service()
 
-        # Get folder name
-        folder = service.files().get(fileId=folder_id, fields='name').execute()
+        # Get folder name (with Shared Drive support)
+        folder = service.files().get(
+            fileId=folder_id,
+            fields='name',
+            supportsAllDrives=True
+        ).execute()
         folder_name = folder.get('name', 'Unknown')
 
         # Count images
