@@ -742,7 +742,6 @@
             <!-- Upload Method Tabs -->
             <div class="upload-tabs">
                 <button class="upload-tab active" onclick="switchUploadMethod('browser')">Browser Upload</button>
-                <button class="upload-tab" onclick="switchUploadMethod('folder')">Local Folder Path</button>
                 <button class="upload-tab" id="drive-tab" onclick="switchUploadMethod('drive')" style="display: none;">Google Drive</button>
             </div>
 
@@ -755,16 +754,6 @@
                 <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
                     Select Files
                 </button>
-            </div>
-
-            <!-- Local Folder Path Input -->
-            <div class="folder-input-area hidden" id="folder-input-area">
-                <div class="upload-icon">&#128193;</div>
-                <h3>Enter Local Folder Path</h3>
-                <p>For large batches (1000+ photos), paste the full path to your photos folder</p>
-                <input type="text" id="folder-path" class="folder-path-input"
-                       placeholder="C:\Users\YourName\Photos\EventPhotos">
-                <p class="folder-hint">Example: C:\Users\tanis\Downloads\SchoolPhotos</p>
             </div>
 
             <!-- Google Drive Input -->
@@ -893,19 +882,14 @@
             document.querySelectorAll('.upload-tab').forEach(tab => {
                 const tabText = tab.textContent.toLowerCase();
                 const isActive = (method === 'browser' && tabText.includes('browser')) ||
-                                 (method === 'folder' && tabText.includes('local')) ||
                                  (method === 'drive' && tabText.includes('drive'));
                 tab.classList.toggle('active', isActive);
             });
             document.getElementById('drop-zone').classList.toggle('hidden', method !== 'browser');
-            document.getElementById('folder-input-area').classList.toggle('hidden', method !== 'folder');
             document.getElementById('drive-input-area').classList.toggle('hidden', method !== 'drive');
 
             // Update file preview visibility based on method
-            if (method === 'folder') {
-                document.getElementById('file-preview').classList.add('hidden');
-                updateFolderPreview();
-            } else if (method === 'drive') {
+            if (method === 'drive') {
                 document.getElementById('file-preview').classList.add('hidden');
                 updateDrivePreview();
             } else {
@@ -913,19 +897,6 @@
                 if (selectedFiles.length > 0) {
                     document.getElementById('file-preview').classList.remove('hidden');
                 }
-            }
-        }
-
-        function updateFolderPreview() {
-            const folderPath = document.getElementById('folder-path').value.trim();
-            const preview = document.getElementById('file-preview');
-
-            if (folderPath) {
-                preview.classList.remove('hidden');
-                document.getElementById('file-count').textContent = 'Local folder';
-                document.getElementById('preview-grid').innerHTML = '<div style="padding: 20px; color: #666; font-size: 14px;">Will scan: ' + folderPath + '</div>';
-            } else {
-                preview.classList.add('hidden');
             }
         }
 
@@ -1117,43 +1088,6 @@
                 } catch (error) {
                     console.error('Error:', error);
                     alert('Failed to import from Google Drive. Please try again.');
-                    document.getElementById('processing-overlay').classList.add('hidden');
-                }
-
-            } else if (uploadMethod === 'folder') {
-                // Local folder path mode
-                const folderPath = document.getElementById('folder-path').value.trim();
-                if (!folderPath) {
-                    alert('Please enter a folder path');
-                    document.getElementById('processing-overlay').classList.add('hidden');
-                    return;
-                }
-
-                try {
-                    const response = await fetch('/upload_folder', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            folder_path: folderPath,
-                            quality_mode: qualityMode,
-                            similarity_threshold: parseFloat(document.getElementById('similarity').value)
-                        })
-                    });
-
-                    const data = await response.json();
-
-                    if (data.error) {
-                        alert('Error: ' + data.error);
-                        document.getElementById('processing-overlay').classList.add('hidden');
-                        return;
-                    }
-
-                    jobId = data.job_id;
-                    pollStatus();
-
-                } catch (error) {
-                    console.error('Error:', error);
-                    alert('Failed to process folder. Please check the path and try again.');
                     document.getElementById('processing-overlay').classList.add('hidden');
                 }
 

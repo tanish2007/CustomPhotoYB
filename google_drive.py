@@ -209,6 +209,7 @@ def download_folder(
     folder_id: str,
     output_dir: str,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    file_ready_callback: Optional[Callable[[str], None]] = None,
     include_subfolders: bool = False,
     max_workers: int = 10,  # Parallel downloads (reduced for stability)
     skip_existing: bool = True  # Skip already downloaded files (resume support)
@@ -220,6 +221,7 @@ def download_folder(
         folder_id: The Google Drive folder ID
         output_dir: Local directory to save files
         progress_callback: Optional callback(current, total, filename) for progress updates
+        file_ready_callback: Optional callback(filepath) called when each file is ready for processing
         include_subfolders: Whether to include subfolders
         max_workers: Number of parallel download threads (default 10)
         skip_existing: Skip files that already exist (enables resume, default True)
@@ -321,9 +323,17 @@ def download_folder(
                 if status == 'success':
                     downloaded_count[0] += 1
                     downloaded_files.append(filename)
+                    # Notify that file is ready for processing
+                    if file_ready_callback:
+                        filepath = os.path.join(output_dir, filename)
+                        file_ready_callback(filepath)
                 elif status == 'skipped':
                     skipped_count[0] += 1
                     downloaded_files.append(filename)  # Include skipped files in list
+                    # Also notify for skipped files (they exist and are ready)
+                    if file_ready_callback:
+                        filepath = os.path.join(output_dir, filename)
+                        file_ready_callback(filepath)
                 else:
                     failed_count[0] += 1
 

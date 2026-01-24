@@ -344,6 +344,242 @@ def process_photos_face_filter_only(job_id, upload_dir, session_id=None):
         traceback.print_exc()
 
 
+def process_drive_with_parallel_face_detection(job_id, folder_id, upload_dir, face_matcher):
+    """
+    HYBRID APPROACH: Download files from Google Drive while running face detection in parallel.
+
+    This overlaps network I/O (downloading) with GPU compute (face detection) for faster processing.
+
+    Flow:
+    - Download thread: Downloads files and adds paths to queue
+    - Face detection thread: Processes files from queue as they become ready
+    - Both run simultaneously for maximum efficiency
+    """
+    import queue
+    import threading
+
+    print(f"\n{'='*60}")
+    print(f"[Job {job_id}] HYBRID MODE: Parallel Download + Face Detection")
+    print(f"{'='*60}")
+
+    # Shared state
+    file_queue = queue.Queue()
+    results_lock = threading.Lock()
+    matched_photos = []
+    unmatched_photos = []
+    no_faces_photos = []
+    error_photos = []
+
+    # Counters
+    download_complete = threading.Event()
+    total_files = [0]
+    downloaded_count = [0]
+    processed_count = [0]
+
+    # Face detection worker
+    def face_detection_worker():
+        """Process files from queue as they become available."""
+        while True:
+            try:
+                # Wait for file or check if download is complete
+                try:
+                    filepath = file_queue.get(timeout=1.0)
+                except queue.Empty:
+                    # Check if download is complete and queue is empty
+                    if download_complete.is_set() and file_queue.empty():
+                        break
+                    continue
+
+                if filepath is None:  # Poison pill
+                    break
+
+                # Process the file
+                result = face_matcher.check_photo_for_target(filepath)
+
+                with results_lock:
+                    processed_count[0] += 1
+
+                    if 'error' in result:
+                        error_photos.append({'path': filepath, 'error': result['error']})
+                    elif result['num_faces'] == 0:
+                        no_faces_photos.append({'path': filepath, 'num_faces': 0})
+                    elif result['contains_target']:
+                        matched_photos.append({
+                            'path': filepath,
+                            'similarity': result['best_match_similarity'],
+                            'num_faces': result['num_faces'],
+                            'all_similarities': result.get('all_face_similarities', []),
+                            'face_bboxes': result.get('face_bboxes', [])
+                        })
+                    else:
+                        unmatched_photos.append({
+                            'path': filepath,
+                            'best_similarity': result['best_match_similarity'],
+                            'num_faces': result['num_faces']
+                        })
+
+                    # Update progress (use unified message format)
+                    if processed_count[0] % 10 == 0:
+                        # After downloads complete, show scan-only progress
+                        if download_complete.is_set():
+                            pct = 30 + int((processed_count[0] / max(total_files[0], 1)) * 40)
+                            processing_jobs[job_id]['progress'] = min(pct, 70)
+                            processing_jobs[job_id]['message'] = f'Scanning faces: {processed_count[0]}/{total_files[0]}'
+                        processing_jobs[job_id]['photos_checked'] = processed_count[0]
+                        print(f"[Job {job_id}] [HYBRID] Downloaded: {downloaded_count[0]}, Face checked: {processed_count[0]}, Matched: {len(matched_photos)}")
+
+                file_queue.task_done()
+
+            except Exception as e:
+                print(f"[Job {job_id}] Face detection error: {e}")
+                continue
+
+    # Callback when file is downloaded
+    def on_file_ready(filepath):
+        """Called by download_folder when each file is ready."""
+        with results_lock:
+            downloaded_count[0] += 1
+        file_queue.put(filepath)
+
+    # Progress callback for download
+    def download_progress(current, total, _filename):
+        total_files[0] = total
+        pct = 5 + int((current / total) * 25)  # 5-30%
+        processing_jobs[job_id]['progress'] = pct
+        processing_jobs[job_id]['message'] = f'Downloading: {current}/{total}, Scanning: {processed_count[0]}'
+        processing_jobs[job_id]['total_files'] = total
+
+    try:
+        processing_jobs[job_id]['status'] = 'processing'
+        processing_jobs[job_id]['progress'] = 5
+        processing_jobs[job_id]['message'] = 'Starting parallel download and face detection...'
+
+        # Start face detection workers (use multiple threads for better throughput)
+        num_workers = 4  # Face detection threads
+        workers = []
+        for _ in range(num_workers):
+            t = threading.Thread(target=face_detection_worker)
+            t.daemon = True
+            t.start()
+            workers.append(t)
+
+        print(f"[Job {job_id}] Started {num_workers} face detection workers")
+
+        # Start download (this will call on_file_ready for each file)
+        print(f"[Job {job_id}] Starting Google Drive download with parallel face detection...")
+
+        download_folder(
+            folder_id,
+            upload_dir,
+            progress_callback=download_progress,
+            file_ready_callback=on_file_ready
+        )
+
+        # Signal download complete
+        download_complete.set()
+        print(f"[Job {job_id}] Download complete. Waiting for face detection to finish...")
+
+        # Wait for queue to be processed
+        file_queue.join()
+
+        # Send poison pills to stop workers
+        for _ in workers:
+            file_queue.put(None)
+
+        # Wait for workers to finish
+        for t in workers:
+            t.join(timeout=5.0)
+
+        print(f"\n[Job {job_id}] HYBRID Face Detection Results:")
+        print(f"  - Photos with your child: {len(matched_photos)}")
+        print(f"  - Photos without match: {len(unmatched_photos)}")
+        print(f"  - Photos with no faces: {len(no_faces_photos)}")
+
+        # Now create thumbnails and prepare review data
+        processing_jobs[job_id]['progress'] = 75
+        processing_jobs[job_id]['message'] = f'Creating thumbnails for {len(matched_photos)} photos...'
+
+        thumbs_dir = os.path.join(upload_dir, 'thumbnails')
+        os.makedirs(thumbs_dir, exist_ok=True)
+
+        filtered_photos = []
+        for i, match in enumerate(matched_photos):
+            filename = os.path.basename(match['path'])
+            thumb_name = get_thumbnail_name(filename)
+            thumb_path = os.path.join(thumbs_dir, thumb_name)
+
+            create_thumbnail(match['path'], thumb_path)
+
+            filtered_photos.append({
+                'filename': filename,
+                'thumbnail': thumb_name,
+                'face_match_score': match['similarity'],
+                'num_faces': match['num_faces'],
+                'face_bboxes': match.get('face_bboxes', [])
+            })
+
+            if (i + 1) % 20 == 0:
+                processing_jobs[job_id]['message'] = f'Creating thumbnails: {i + 1}/{len(matched_photos)}'
+
+        # Sort by face match score
+        filtered_photos.sort(key=lambda x: x['face_match_score'], reverse=True)
+
+        # Prepare unmatched data
+        unmatched_data = []
+        for unmatch in unmatched_photos:
+            filename = os.path.basename(unmatch['path'])
+            unmatched_data.append({
+                'filename': filename,
+                'best_similarity': unmatch.get('best_similarity', 0),
+                'num_faces': unmatch.get('num_faces', 0)
+            })
+
+        for no_face in no_faces_photos:
+            filename = os.path.basename(no_face['path'])
+            unmatched_data.append({
+                'filename': filename,
+                'best_similarity': 0,
+                'num_faces': 0
+            })
+
+        # Store results
+        review_data = {
+            'total_uploaded': total_files[0],
+            'filtered_photos': filtered_photos,
+            'unmatched_photos': unmatched_data,
+            'statistics': {
+                'total_scanned': total_files[0],
+                'matched': len(matched_photos),
+                'unmatched': len(unmatched_photos),
+                'no_faces': len(no_faces_photos),
+                'errors': len(error_photos),
+                'match_rate': f"{(len(matched_photos) / max(total_files[0], 1) * 100):.1f}%"
+            },
+            'reference_count': face_matcher.get_reference_count()
+        }
+
+        # Save review data
+        review_file = os.path.join(RESULTS_FOLDER, f"{job_id}_review.json")
+        with open(review_file, 'w') as f:
+            json.dump(review_data, f, indent=2, default=str)
+
+        processing_jobs[job_id]['progress'] = 100
+        processing_jobs[job_id]['status'] = 'review_pending'
+        processing_jobs[job_id]['message'] = f'Found your child in {len(filtered_photos)} of {total_files[0]} photos!'
+        processing_jobs[job_id]['review_data'] = review_data
+
+        print(f"\n[Job {job_id}] HYBRID MODE COMPLETE!")
+        print(f"  - Found {len(filtered_photos)} photos of your child")
+        print(f"{'='*60}\n")
+
+    except Exception as e:
+        print(f"[Job {job_id}] HYBRID EXCEPTION: {str(e)}")
+        processing_jobs[job_id]['status'] = 'error'
+        processing_jobs[job_id]['message'] = str(e)
+        import traceback
+        traceback.print_exc()
+
+
 def save_photos_by_month(job_id, upload_dir, selected_photos, rejected_photos, month_stats):
     """
     Automatically save both selected and not-selected photos organized by month.
@@ -1477,7 +1713,16 @@ def import_from_drive():
     # Start download in background thread
     def download_and_process():
         try:
-            def progress_callback(current, total, filename):
+            # HYBRID MODE: If we have face references, use parallel download + face detection
+            if has_references:
+                face_matcher = face_matchers.get(face_session_id)
+                if face_matcher and face_matcher.get_reference_count() > 0:
+                    print(f"[Job {job_id}] Using HYBRID MODE: Parallel download + face detection")
+                    process_drive_with_parallel_face_detection(job_id, folder_id, upload_dir, face_matcher)
+                    return
+
+            # SEQUENTIAL MODE: Download all first, then process (for auto mode without face filtering)
+            def progress_callback(current, total, _filename):
                 pct = int(5 + (current / total) * 25)  # 5% to 30%
                 processing_jobs[job_id]['progress'] = pct
                 processing_jobs[job_id]['message'] = f'Downloading from Drive: {current}/{total}'
@@ -1500,14 +1745,9 @@ def import_from_drive():
 
             print(f"[Job {job_id}] Downloaded {downloaded_count} photos from Google Drive")
 
-            # Now start the face filtering or quality selection
-            if has_references:
-                processing_jobs[job_id]['message'] = f'Scanning {downloaded_count} photos for faces...'
-                process_photos_face_filter_only(job_id, upload_dir, face_session_id)
-            else:
-                # No face filtering - use all downloaded photos as confirmed
-                processing_jobs[job_id]['message'] = f'Selecting best from {downloaded_count} photos...'
-                process_photos_quality_selection(job_id, upload_dir, quality_mode, similarity_threshold, downloaded_files)
+            # No face filtering - use all downloaded photos (auto mode)
+            processing_jobs[job_id]['message'] = f'Selecting best from {downloaded_count} photos...'
+            process_photos_quality_selection(job_id, upload_dir, quality_mode, similarity_threshold, downloaded_files)
 
         except Exception as e:
             print(f"[Job {job_id}] Drive import error: {e}")
