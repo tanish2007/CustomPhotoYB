@@ -926,8 +926,8 @@ def process_photos_automatic(job_id, upload_dir, quality_mode, similarity_thresh
 
         # Step 3: Clustering (HDBSCAN with timestamp-weighted features, 24h gap splitting)
         # min_cluster_size=5 reduces single-photo clusters by requiring at least 5 similar photos
-        clusterer = BucketClusterManager(PhotoClusterer(method="hdbscan", min_cluster_size=5, temporal_gap_hours=24.0, timestamp_weight=0.3))
-        cluster_results = clusterer.cluster_all_buckets(buckets, embeddings, targets, use_adaptive=False)
+        clusterer = BucketClusterManager(PhotoClusterer(min_cluster_size=5, temporal_gap_hours=24.0, timestamp_weight=0.3))
+        cluster_results = clusterer.cluster_all_buckets(buckets, embeddings, targets)
 
         processing_jobs[job_id]['progress'] = 60
         processing_jobs[job_id]['message'] = 'Scoring photo quality...'

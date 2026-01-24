@@ -1,13 +1,12 @@
 """
 Step 3: Cluster Photos Within Each Time Bucket
-Uses K-Means or Hierarchical Clustering for diversity
+Uses HDBSCAN clustering for diversity (auto-determines optimal clusters)
 Ensures different activities, settings, and moods are represented
 """
 
 import numpy as np
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional
 from datetime import datetime
-from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.metrics import silhouette_score
 import hdbscan
 import warnings
@@ -16,132 +15,23 @@ warnings.filterwarnings('ignore', category=FutureWarning)
 
 
 class PhotoClusterer:
-    """Cluster photos within time buckets for diversity."""
+    """Cluster photos within time buckets for diversity using HDBSCAN."""
 
-    def __init__(self, method: str = "hdbscan", min_cluster_size: int = 5,
+    def __init__(self, min_cluster_size: int = 5,
                  temporal_gap_hours: float = 24.0, timestamp_weight: float = 0.3):
         """
         Initialize clusterer.
 
         Args:
-            method: "kmeans", "hierarchical", or "hdbscan"
             min_cluster_size: Minimum cluster size for HDBSCAN (default: 5)
             temporal_gap_hours: Hours gap to split clusters into separate events (default: 24.0)
                               Set to None to disable temporal splitting
             timestamp_weight: Weight for timestamps in combined features (default: 0.3)
                               0.0 = ignore timestamps, 1.0 = timestamps equally important as embeddings
         """
-        self.method = method
         self.min_cluster_size = min_cluster_size
         self.temporal_gap_hours = temporal_gap_hours
         self.timestamp_weight = timestamp_weight
-
-    def determine_num_clusters(self, num_photos: int,
-                                target_selection: int) -> int:
-        """
-        Determine optimal number of clusters.
-
-        Args:
-            num_photos: Total photos in bucket
-            target_selection: How many photos we want to select
-
-        Returns:
-            Number of clusters to use
-        """
-        if num_photos <= target_selection:
-            # If we have fewer photos than target, each photo is its own cluster
-            return num_photos
-
-        # Aim for slightly more clusters than target to have choices
-        # But not too many that clusters become meaningless
-        num_clusters = min(
-            max(target_selection, 2),  # At least 2 clusters
-            num_photos // 2  # At most half the photos
-        )
-
-        return num_clusters
-
-    def determine_optimal_clusters_adaptive(self, embeddings: np.ndarray,
-                                             num_photos: int) -> int:
-        """
-        Determine optimal number of clusters using silhouette analysis.
-        Tries different K values and picks the one with best silhouette score.
-        This finds NATURAL groupings based on actual photo similarity.
-
-        Args:
-            embeddings: Photo embeddings array
-            num_photos: Total photos in bucket
-
-        Returns:
-            Optimal number of clusters
-        """
-        if num_photos < 4:
-            # Too few photos for meaningful clustering
-            return num_photos
-
-        # Define range of K values to try
-        # Min: 2 clusters
-        # Max: photos//3 (ensures at least 3 photos per cluster on average)
-        min_k = 2
-        max_k = min(num_photos // 3, 20)  # Cap at 20 to avoid too many clusters
-
-        if max_k < min_k:
-            return min_k
-
-        # For efficiency, sample strategic K values instead of trying all
-        # This reduces computation while still finding good K
-        if max_k - min_k <= 5:
-            # Small range, try all
-            candidate_ks = list(range(min_k, max_k + 1))
-        else:
-            # Large range, sample strategically
-            candidate_ks = [
-                min_k,                                      # Minimum
-                min_k + (max_k - min_k) // 4,              # 25% point
-                min_k + (max_k - min_k) // 2,              # 50% point (middle)
-                min_k + 3 * (max_k - min_k) // 4,          # 75% point
-                max_k                                       # Maximum
-            ]
-            # Remove duplicates and sort
-            candidate_ks = sorted(list(set(candidate_ks)))
-
-        print(f"  Testing K values: {candidate_ks} (from {num_photos} photos)")
-
-        best_k = min_k
-        best_score = -1
-
-        for k in candidate_ks:
-            if k >= num_photos or k < 2:
-                continue
-
-            try:
-                # Cluster with this K
-                if self.method == "kmeans":
-                    clusterer = KMeans(n_clusters=k, random_state=42, n_init=10)
-                else:
-                    clusterer = AgglomerativeClustering(n_clusters=k, linkage='ward')
-
-                labels = clusterer.fit_predict(embeddings)
-
-                # Calculate silhouette score (measures cluster quality)
-                # Score ranges from -1 to 1:
-                #   1 = perfect clusters (very distinct)
-                #   0 = overlapping clusters
-                #  -1 = wrong clustering
-                score = silhouette_score(embeddings, labels)
-
-                print(f"    K={k}: silhouette={score:.3f}")
-
-                if score > best_score:
-                    best_score = score
-                    best_k = k
-
-            except Exception as e:
-                print(f"    K={k}: failed ({e})")
-                continue
-
-        print(f"  -> Optimal K={best_k} (silhouette={best_score:.3f})")
-        return best_k
 
     def _normalize_timestamps(self, timestamps: List[datetime]) -> np.ndarray:
         """
@@ -295,14 +185,12 @@ class PhotoClusterer:
         return new_labels
 
     def cluster_photos(self, embeddings: np.ndarray,
-                       num_clusters: int = None,
                        timestamps: Optional[List[datetime]] = None) -> np.ndarray:
         """
-        Cluster photos based on their embeddings with optional timestamp weighting.
+        Cluster photos using HDBSCAN with optional timestamp weighting.
 
         Args:
             embeddings: Array of shape (num_photos, embedding_dim)
-            num_clusters: Number of clusters (ignored for HDBSCAN, which auto-determines)
             timestamps: Optional list of timestamps for temporal-weighted clustering
 
         Returns:
@@ -321,66 +209,40 @@ class PhotoClusterer:
         else:
             features = embeddings
 
-        if self.method == "hdbscan":
-            num_photos = len(features)
+        num_photos = len(features)
 
-            # HDBSCAN requires at least 3 photos to work properly
-            # For very small buckets, treat each photo as its own cluster
-            if num_photos < 3:
-                return np.arange(num_photos)
+        # HDBSCAN requires at least 3 photos to work properly
+        # For very small buckets, treat each photo as its own cluster
+        if num_photos < 3:
+            return np.arange(num_photos)
 
-            # Adjust parameters based on number of photos
-            # min_cluster_size must be > 1 and <= num_photos
-            actual_min_cluster_size = max(2, min(self.min_cluster_size, num_photos))
-            # min_samples must be >= 1 and <= num_photos
-            actual_min_samples = max(1, min(1, num_photos))
+        # Adjust parameters based on number of photos
+        # min_cluster_size must be > 1 and <= num_photos
+        actual_min_cluster_size = max(2, min(self.min_cluster_size, num_photos))
+        # min_samples must be >= 1 and <= num_photos
+        actual_min_samples = max(1, min(1, num_photos))
 
-            clusterer = hdbscan.HDBSCAN(
-                min_cluster_size=actual_min_cluster_size,
-                min_samples=actual_min_samples,
-                metric='euclidean',
-                cluster_selection_method='eom'  # Excess of Mass for more stable clusters
-            )
-            labels = clusterer.fit_predict(features)
+        clusterer = hdbscan.HDBSCAN(
+            min_cluster_size=actual_min_cluster_size,
+            min_samples=actual_min_samples,
+            metric='euclidean',
+            cluster_selection_method='eom'  # Excess of Mass for more stable clusters
+        )
+        labels = clusterer.fit_predict(features)
 
-            # HDBSCAN marks noise points as -1, we'll treat them as individual clusters
-            # This ensures every photo gets assigned to a cluster
-            if np.any(labels == -1):
-                max_label = labels.max()
-                noise_mask = labels == -1
-                noise_indices = np.where(noise_mask)[0]
-                for i, idx in enumerate(noise_indices):
-                    labels[idx] = max_label + 1 + i
+        # HDBSCAN marks noise points as -1, we'll treat them as individual clusters
+        # This ensures every photo gets assigned to a cluster
+        if np.any(labels == -1):
+            max_label = labels.max()
+            noise_mask = labels == -1
+            noise_indices = np.where(noise_mask)[0]
+            for i, idx in enumerate(noise_indices):
+                labels[idx] = max_label + 1 + i
 
-            # Apply temporal gap splitting if timestamps are provided
-            if timestamps is not None and self.temporal_gap_hours is not None:
-                labels = self._apply_temporal_splitting(labels, timestamps)
+        # Apply temporal gap splitting if timestamps are provided
+        if timestamps is not None and self.temporal_gap_hours is not None:
+            labels = self._apply_temporal_splitting(labels, timestamps)
 
-            return labels
-
-        # For K-Means and Hierarchical, we need num_clusters
-        if len(embeddings) <= num_clusters:
-            # Each photo is its own cluster
-            return np.arange(len(embeddings))
-
-        if num_clusters <= 1:
-            return np.zeros(len(embeddings), dtype=int)
-
-        if self.method == "kmeans":
-            clusterer = KMeans(
-                n_clusters=num_clusters,
-                random_state=42,
-                n_init=10
-            )
-        elif self.method == "hierarchical":
-            clusterer = AgglomerativeClustering(
-                n_clusters=num_clusters,
-                linkage='ward'
-            )
-        else:
-            raise ValueError(f"Unknown clustering method: {self.method}")
-
-        labels = clusterer.fit_predict(embeddings)
         return labels
 
     def get_cluster_representatives(self, embeddings: np.ndarray,
@@ -455,7 +317,7 @@ class PhotoClusterer:
 
 
 class BucketClusterManager:
-    """Manage clustering across all time buckets."""
+    """Manage clustering across all time buckets using HDBSCAN."""
 
     def __init__(self, clusterer: PhotoClusterer = None):
         """
@@ -464,21 +326,19 @@ class BucketClusterManager:
         Args:
             clusterer: PhotoClusterer instance
         """
-        self.clusterer = clusterer or PhotoClusterer(method="hdbscan")
+        self.clusterer = clusterer or PhotoClusterer()
 
     def cluster_all_buckets(self,
                             buckets: Dict[str, List[Dict]],
                             embeddings: Dict[str, np.ndarray],
-                            targets: Dict[str, int],
-                            use_adaptive: bool = True) -> Dict[str, Dict]:
+                            targets: Dict[str, int]) -> Dict[str, Dict]:
         """
-        Cluster photos in all buckets.
+        Cluster photos in all buckets using HDBSCAN.
 
         Args:
             buckets: Dict of bucket_key -> list of photo info
             embeddings: Dict of filename -> embedding
             targets: Dict of bucket_key -> target selection count
-            use_adaptive: If True, use adaptive K selection with silhouette scores
 
         Returns:
             Dict with clustering results per bucket
@@ -520,26 +380,11 @@ class BucketClusterManager:
             use_timestamps = all(ts is not None for ts in bucket_timestamps)
             timestamps_param = bucket_timestamps if use_timestamps else None
 
-            # Determine number of clusters
-            if self.clusterer.method == "hdbscan":
-                # HDBSCAN automatically determines clusters
-                print(f"\nBucket {bucket_key}: HDBSCAN clustering (auto K)...")
-                labels = self.clusterer.cluster_photos(bucket_embeddings, timestamps=timestamps_param)
-                num_clusters = len(np.unique(labels))
-                print(f"  -> HDBSCAN found {num_clusters} natural clusters")
-            elif use_adaptive:
-                print(f"\nBucket {bucket_key}: Adaptive clustering...")
-                num_clusters = self.clusterer.determine_optimal_clusters_adaptive(
-                    bucket_embeddings, len(bucket_embeddings)
-                )
-                # Cluster
-                labels = self.clusterer.cluster_photos(bucket_embeddings, num_clusters, timestamps=timestamps_param)
-            else:
-                num_clusters = self.clusterer.determine_num_clusters(
-                    len(bucket_embeddings), target
-                )
-                # Cluster
-                labels = self.clusterer.cluster_photos(bucket_embeddings, num_clusters, timestamps=timestamps_param)
+            # HDBSCAN automatically determines clusters
+            print(f"\nBucket {bucket_key}: HDBSCAN clustering (auto K)...")
+            labels = self.clusterer.cluster_photos(bucket_embeddings, timestamps=timestamps_param)
+            num_clusters = len(np.unique(labels))
+            print(f"  -> HDBSCAN found {num_clusters} natural clusters")
 
             # Get representatives
             representatives = self.clusterer.get_cluster_representatives(
@@ -600,12 +445,11 @@ if __name__ == "__main__":
     embedding_dim = 512
     embeddings = np.random.randn(num_photos, embedding_dim)
 
-    # Create clusterer
-    clusterer = PhotoClusterer(method="kmeans")
+    # Create clusterer (HDBSCAN auto-determines clusters)
+    clusterer = PhotoClusterer()
 
     # Cluster
-    num_clusters = 10
-    labels = clusterer.cluster_photos(embeddings, num_clusters)
+    labels = clusterer.cluster_photos(embeddings)
 
     # Analyze
     quality = analyze_cluster_quality(embeddings, labels)

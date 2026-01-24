@@ -6,6 +6,8 @@ Uses Service Account authentication (no user OAuth required).
 import os
 import re
 import io
+import json
+import tempfile
 from typing import List, Dict, Optional, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
@@ -23,7 +25,31 @@ except ImportError:
 
 # Configuration
 SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
-CREDENTIALS_PATH = os.path.join(os.path.dirname(__file__), 'credentials', 'service_account.json')
+
+def _get_credentials_path():
+    """Get credentials path - supports HuggingFace secrets or local file."""
+    # Check for HuggingFace secret first (environment variable)
+    service_account_json = os.environ.get('GOOGLE_SERVICE_ACCOUNT')
+    if service_account_json:
+        # Write to temp file (Google API requires a file path)
+        temp_file = os.path.join(tempfile.gettempdir(), 'gcp_service_account.json')
+        try:
+            # Parse to validate JSON, then write
+            json.loads(service_account_json)  # Validate
+            with open(temp_file, 'w') as f:
+                f.write(service_account_json)
+            print(f"[GDrive] Using credentials from GOOGLE_SERVICE_ACCOUNT environment variable")
+            return temp_file
+        except json.JSONDecodeError as e:
+            print(f"[GDrive] Invalid JSON in GOOGLE_SERVICE_ACCOUNT: {e}")
+
+    # Fall back to local file
+    local_path = os.path.join(os.path.dirname(__file__), 'credentials', 'service_account.json')
+    if os.path.exists(local_path):
+        print(f"[GDrive] Using credentials from local file: {local_path}")
+    return local_path
+
+CREDENTIALS_PATH = _get_credentials_path()
 
 # Domain-wide delegation: impersonate this user (set to None for direct service account access)
 IMPERSONATED_USER = "team@rethinkyearbooks.com"

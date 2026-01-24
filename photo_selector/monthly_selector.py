@@ -9,7 +9,6 @@ Selects ~40 best photos per month ensuring:
 """
 
 import os
-import math
 import numpy as np
 from pathlib import Path
 from datetime import datetime
@@ -565,36 +564,6 @@ class MonthlyPhotoSelector:
 
         return selected
 
-    def calculate_cluster_score(self, cluster_photos: List[Dict]) -> float:
-        """
-        Calculate priority score for a cluster.
-
-        Formula: 0.50 × best_photo_score + 0.30 × log(cluster_size) + 0.20 × mean_photo_score
-
-        This favors:
-        - High-quality moments (best photo)
-        - Real events (larger clusters = more photos taken)
-        - Consistent quality (mean score)
-        """
-        if not cluster_photos:
-            return 0.0
-
-        scores = [p.get('total', 0) for p in cluster_photos]
-        best_score = max(scores)
-        mean_score = sum(scores) / len(scores)
-        size_score = math.log(len(cluster_photos) + 1)  # +1 to avoid log(1)=0
-
-        # Normalize size_score (log(100) ≈ 4.6, so divide by 5 to get 0-1 range)
-        size_score_normalized = min(size_score / 5.0, 1.0)
-
-        cluster_score = (
-            0.50 * best_score +
-            0.30 * size_score_normalized +
-            0.20 * mean_score
-        )
-
-        return cluster_score
-
     def is_same_event(self, photo1: Dict, photo2: Dict, time_window_minutes: int = 30) -> bool:
         """
         Check if two photos are from the same event based on timestamp proximity.
@@ -755,34 +724,6 @@ class MonthlyPhotoSelector:
         print(f"  HDBSCAN found {len(clusters)} clusters from {len(valid_photos)} photos")
 
         return clusters
-
-    def get_max_picks_for_cluster(self, cluster_size: int) -> int:
-        """
-        Determine maximum photos to pick from a cluster based on its size.
-
-        Very generous limits - diversity check (0.92) prevents only true duplicates.
-        This allows different scenes with same people to be selected.
-
-        Cluster Size → Max Photos
-        1-2         → 2
-        3-5         → 4
-        6-10        → 8
-        11-20       → 12
-        21-40       → 16
-        >40         → 20
-        """
-        if cluster_size <= 2:
-            return 2
-        elif cluster_size <= 5:
-            return 4
-        elif cluster_size <= 10:
-            return 8
-        elif cluster_size <= 20:
-            return 12
-        elif cluster_size <= 40:
-            return 16
-        else:
-            return 20
 
     def select_hybrid_hdbscan(self, photos: List[Dict],
                               embeddings: Dict[str, np.ndarray],
@@ -1158,43 +1099,6 @@ class MonthlyPhotoSelector:
 
         return selected, final_breakdown
 
-    def _sort_with_tiebreakers(self, photos: List[Dict],
-                                embeddings: Dict[str, np.ndarray]) -> List[Dict]:
-        """Sort photos by score with tiebreakers."""
-
-        def sort_key(photo):
-            # Primary: total score (higher better)
-            total = photo.get('total', 0)
-
-            # Tiebreaker 1: uniqueness
-            uniqueness = photo.get('uniqueness', 0.5)
-
-            # Tiebreaker 2: timestamp for spread (use hour of day)
-            timestamp = photo.get('timestamp', 0)
-            time_spread = (timestamp % 86400) / 86400 if timestamp else 0.5
-
-            # Combine with decreasing weights
-            return (total, uniqueness, time_spread)
-
-        return sorted(photos, key=sort_key, reverse=True)
-
-    def _is_duplicate_of_selected(self, photo: Dict,
-                                   selected: List[Dict],
-                                   embeddings: Dict[str, np.ndarray]) -> bool:
-        """Check if photo is duplicate of any selected photo."""
-        emb = embeddings.get(photo['filename'])
-        if emb is None:
-            return False
-
-        for sel in selected:
-            sel_emb = embeddings.get(sel['filename'])
-            if sel_emb is not None:
-                sim = self.compute_similarity(emb, sel_emb)
-                if sim > self.duplicate_threshold:
-                    return True
-
-        return False
-
     def _get_category_breakdown(self, photos: List[Dict]) -> Dict[str, int]:
         """Get count of photos per category."""
         breakdown = defaultdict(int)
@@ -1278,76 +1182,3 @@ class MonthlyPhotoSelector:
                 'selection_rate': round(total_selected / total_input, 3) if total_input > 0 else 0
             }
         }
-
-
-def run_monthly_selection(folder_path: str,
-                          embeddings: Dict[str, np.ndarray],
-                          target_per_month: int = 40,
-                          duplicate_threshold: float = 0.85,
-                          diversity_threshold: float = 0.75,
-                          progress_callback=None) -> Dict:
-    """
-    Main entry point for monthly photo selection.
-
-    Uses greedy diverse selection: picks highest-scoring photos while
-    ensuring visual diversity (skips photos too similar to already-selected).
-
-    Args:
-        folder_path: Path to folder with photos
-        embeddings: Pre-computed CLIP embeddings
-        target_per_month: Target photos per month
-        duplicate_threshold: Similarity threshold for exact duplicates (default 0.85)
-        diversity_threshold: Skip photos with similarity > this to selected (default 0.80)
-        progress_callback: Optional callback for progress updates
-
-    Returns:
-        Dict with selected photos
-    """
-    selector = MonthlyPhotoSelector(
-        target_per_month=target_per_month,
-        duplicate_threshold=duplicate_threshold,
-        diversity_threshold=diversity_threshold
-    )
-
-    # Step 1: Group by month
-    if progress_callback:
-        progress_callback("Grouping photos by month...")
-    photos_by_month = selector.group_photos_by_month(folder_path)
-
-    # Step 2: Detect categories
-    if progress_callback:
-        progress_callback("Detecting photo categories...")
-    photos_by_month = selector.detect_categories(photos_by_month)
-
-    # Step 3: Select from each month
-    if progress_callback:
-        progress_callback("Selecting best photos...")
-    results = selector.select_all_months(photos_by_month, embeddings, progress_callback)
-
-    return results
-
-
-if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) > 1:
-        folder = sys.argv[1]
-    else:
-        folder = r"C:\Users\tanis\Downloads\test_photos"
-
-    # Load embeddings if available
-    embeddings = {}
-    emb_file = os.path.join(os.path.dirname(__file__), "photo_embeddings.npz")
-    if os.path.exists(emb_file):
-        data = np.load(emb_file)
-        embeddings = {fn: emb for fn, emb in zip(data['filenames'], data['embeddings'])}
-
-    results = run_monthly_selection(folder, embeddings, target_per_month=40)
-
-    print("\n=== Month Distribution Table ===")
-    print(f"{'Month':<10} {'Total':>8} {'Selected':>10} {'Categories':<40}")
-    print("-" * 70)
-    for stat in results['month_stats']:
-        print(f"{stat['month']:<10} {stat['total_photos']:>8} {stat['selected']:>10} {stat['category_summary']:<40}")
-    print("-" * 70)
-    print(f"{'TOTAL':<10} {results['summary']['total_photos']:>8} {results['summary']['total_selected']:>10}")

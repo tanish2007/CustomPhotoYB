@@ -426,37 +426,6 @@ class FaceMatcher:
         """
         self.similarity_threshold = max(0.1, min(0.9, threshold))
 
-    def get_borderline_matches(self,
-                               photo_paths: List[str],
-                               margin: float = 0.1) -> List[Dict]:
-        """
-        Get photos that are close to the threshold (for manual review).
-
-        Args:
-            photo_paths: List of photo paths to check
-            margin: How far below threshold to consider (default 0.1)
-
-        Returns:
-            List of borderline photos with their similarity scores
-        """
-        borderline = []
-        lower_bound = self.similarity_threshold - margin
-
-        for photo_path in tqdm(photo_paths, desc="Finding borderline matches"):
-            result = self.check_photo_for_target(photo_path)
-
-            if result.get('num_faces', 0) > 0:
-                sim = result['best_match_similarity']
-                if lower_bound <= sim < self.similarity_threshold:
-                    borderline.append({
-                        'path': photo_path,
-                        'similarity': sim,
-                        'num_faces': result['num_faces']
-                    })
-
-        borderline.sort(key=lambda x: x['similarity'], reverse=True)
-        return borderline
-
     def save_embeddings(self, filepath: str):
         """
         Save reference embeddings to .npz file for later reuse.
@@ -494,40 +463,6 @@ class FaceMatcher:
 
         print(f"[FaceMatcher] Loaded {len(matcher.reference_embeddings)} embeddings from {filepath}")
         return matcher
-
-
-# Convenience function for quick filtering
-def filter_photos_by_person(reference_photos: List[str],
-                            event_photos: List[str],
-                            similarity_threshold: float = 0.5) -> Dict:
-    """
-    Quick function to filter photos containing a specific person.
-
-    Args:
-        reference_photos: 2-3 photos of the target person
-        event_photos: All photos to filter
-        similarity_threshold: Matching threshold (0.4-0.6 recommended)
-
-    Returns:
-        Dict with matched and unmatched photos
-    """
-    matcher = FaceMatcher(similarity_threshold=similarity_threshold)
-
-    # Load reference photos
-    print(f"Loading {len(reference_photos)} reference photos...")
-    for ref_photo in reference_photos:
-        result = matcher.add_reference_photo(ref_photo)
-        if not result['success']:
-            print(f"Warning: Failed to add reference {ref_photo}: {result.get('error')}")
-        else:
-            print(f"  Added: {Path(ref_photo).name} (confidence: {result['face_used']['confidence']:.2f})")
-
-    if matcher.get_reference_count() == 0:
-        return {'error': 'No valid reference photos loaded'}
-
-    print(f"\nScanning {len(event_photos)} photos for target person...")
-    # Filter event photos
-    return matcher.filter_photos(event_photos)
 
 
 if __name__ == "__main__":

@@ -345,39 +345,6 @@ class AutomaticSelector:
 
         return selected, rejected
 
-    def ensure_cluster_variety(self,
-                               cluster_selections: Dict[int, List[Dict]],
-                               cluster_all_photos: Dict[int, List[Dict]]) -> Tuple[List[Dict], List[Dict]]:
-        """
-        Ensure each cluster has minimum representation for content variety.
-        This ensures we get photos from different activities/scenes.
-
-        Returns:
-            Tuple of (photos to add, photos that were upgraded from rejected)
-        """
-        added = []
-
-        for cluster_id, selections in cluster_selections.items():
-            if len(selections) < self.min_photos_per_cluster:
-                # Get all photos from this cluster
-                all_photos = cluster_all_photos.get(cluster_id, [])
-
-                # Sort by score and try to add more
-                sorted_photos = sorted(all_photos, key=lambda x: x.get('total', 0), reverse=True)
-
-                for photo in sorted_photos:
-                    if photo not in selections and photo not in added:
-                        # Lower standards for variety - accept 60% of normal threshold
-                        if photo.get('total', 0) >= self.quality_threshold * 0.6:
-                            photo['selection_reason'] = SelectionReason.SELECTED_UNIQUE_MOMENT
-                            photo['selection_detail'] = f"Best available for this activity/scene"
-                            added.append(photo)
-
-                        if len(selections) + len([p for p in added if p.get('cluster') == cluster_id]) >= self.min_photos_per_cluster:
-                            break
-
-        return added
-
     def ensure_time_coverage(self,
                              bucket_selections: Dict[str, List[Dict]],
                              bucket_all_photos: Dict[str, List[Dict]]) -> Dict[str, List[Dict]]:
@@ -597,30 +564,6 @@ class SmartPhotoSelector:
             'rejection_breakdown': rejection_stats,
             'bucket_stats': bucket_stats
         }
-
-
-def get_auto_selection_summary(results: Dict) -> str:
-    """Generate a human-readable summary of automatic selection."""
-    summary = results['summary']
-    rejection = results.get('rejection_breakdown', {})
-
-    lines = [
-        f"📊 AUTOMATIC SELECTION RESULTS",
-        f"=" * 40,
-        f"",
-        f"Total Photos Analyzed: {summary['total_photos']}",
-        f"Photos Selected: {summary['selected_count']} ({summary['selection_rate']})",
-        f"Photos Rejected: {summary['rejected_count']}",
-        f"",
-        f"Quality Mode: {summary['quality_mode'].upper()}",
-        f"",
-        f"Rejection Reasons:",
-    ]
-
-    for reason, count in sorted(rejection.items(), key=lambda x: x[1], reverse=True):
-        lines.append(f"  • {reason}: {count}")
-
-    return "\n".join(lines)
 
 
 if __name__ == "__main__":
