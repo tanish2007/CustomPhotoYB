@@ -308,6 +308,25 @@ def process_photos_face_filter_only(job_id, upload_dir, session_id=None):
                 'timestamp': timestamp
             })
 
+        # Also include photos that had processing errors
+        for error_photo in filter_results.get('error_photos', []):
+            filename = os.path.basename(error_photo['path'])
+            timestamp = None
+            try:
+                from photo_selector.utils import get_photo_timestamp
+                dt = get_photo_timestamp(error_photo['path'])
+                if dt:
+                    timestamp = dt.timestamp()
+            except:
+                pass
+            unmatched_photos.append({
+                'filename': filename,
+                'best_similarity': 0,
+                'num_faces': 0,
+                'timestamp': timestamp,
+                'error': error_photo.get('error', 'Processing error')
+            })
+
         # Sort unmatched by timestamp
         unmatched_photos.sort(key=lambda x: x.get('timestamp') or 0)
 
@@ -494,6 +513,11 @@ def process_drive_with_parallel_face_detection(job_id, folder_id, upload_dir, fa
         print(f"  - Photos with your child: {len(matched_photos)}")
         print(f"  - Photos without match: {len(unmatched_photos)}")
         print(f"  - Photos with no faces: {len(no_faces_photos)}")
+        print(f"  - Photos with errors: {len(error_photos)}")
+        if error_photos:
+            print(f"  [ERRORS] First 5 error photos:")
+            for ep in error_photos[:5]:
+                print(f"    - {os.path.basename(ep['path'])}: {ep.get('error', 'Unknown error')}")
 
         # Now create thumbnails and prepare review data
         processing_jobs[job_id]['progress'] = 75
@@ -540,6 +564,16 @@ def process_drive_with_parallel_face_detection(job_id, folder_id, upload_dir, fa
                 'filename': filename,
                 'best_similarity': 0,
                 'num_faces': 0
+            })
+
+        # Also add error photos to unmatched (so they're visible to user)
+        for error_photo in error_photos:
+            filename = os.path.basename(error_photo['path'])
+            unmatched_data.append({
+                'filename': filename,
+                'best_similarity': 0,
+                'num_faces': 0,
+                'error': error_photo.get('error', 'Processing error')
             })
 
         # Store results
@@ -744,7 +778,7 @@ def save_photos_by_month(job_id, upload_dir, selected_photos, rejected_photos, m
         return None
 
 
-def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarity_threshold, confirmed_photos, face_data_cache=None):
+def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarity_threshold, confirmed_photos, face_data_cache=None, embedding_model='siglip'):
     """
     Phase 2: Month-based category-aware photo selection.
     Selects ~40 best photos per month with category diversity.
@@ -752,6 +786,7 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
     Args:
         face_data_cache: Dict of filename -> {'num_faces': int, 'face_bboxes': list}
                         Cached face data from Step 2 to avoid re-detection
+        embedding_model: 'siglip' or 'clip' - which embedding model to use
     """
     face_data_cache = face_data_cache or {}
     try:
@@ -761,14 +796,20 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
         print(f"[Job {job_id}] Confirmed photos: {len(confirmed_photos)}")
         print(f"[Job {job_id}] Quality mode: {quality_mode}")
         print(f"[Job {job_id}] Similarity threshold: {similarity_threshold}")
+        print(f"[Job {job_id}] Embedding model: {embedding_model.upper()}")
 
         processing_jobs[job_id]['status'] = 'processing'
         processing_jobs[job_id]['progress'] = 5
-        processing_jobs[job_id]['message'] = 'Loading AI models...'
+        processing_jobs[job_id]['message'] = f'Loading {embedding_model.upper()} model...'
 
-        # Import the new monthly selector
-        from photo_selector.siglip_embeddings import SigLIPEmbedder
+        # Import the appropriate embedder based on selection
         from photo_selector.monthly_selector import MonthlyPhotoSelector
+        if embedding_model == 'clip':
+            from photo_selector.clip_embeddings import CLIPEmbedder as Embedder
+            model_display_name = 'CLIP'
+        else:
+            from photo_selector.siglip_embeddings import SigLIPEmbedder as Embedder
+            model_display_name = 'SigLIP'
 
         # Determine target per month based on quality mode
         if quality_mode == 'keep_more':
@@ -782,11 +823,11 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
 
         # Step 1: Generate embeddings for confirmed photos
         processing_jobs[job_id]['progress'] = 10
-        processing_jobs[job_id]['message'] = 'Analyzing photos with SigLIP AI...'
+        processing_jobs[job_id]['message'] = f'Analyzing photos with {model_display_name}...'
 
-        print(f"[Job {job_id}] Generating SigLIP embeddings for {len(confirmed_photos)} photos...")
+        print(f"[Job {job_id}] Generating {model_display_name} embeddings for {len(confirmed_photos)} photos...")
 
-        embedder = SigLIPEmbedder()
+        embedder = Embedder()
         embeddings = {}
 
         for i, filename in enumerate(confirmed_photos):
@@ -1844,11 +1885,64 @@ def import_from_drive_reupload(dataset_name):
                 print(f"[Job {job_id}] Loaded {len(matcher.reference_embeddings)} reference embeddings")
 
             # Match uploaded files with saved face results
+            # Google Drive filenames differ from browser upload:
+            # 1. Duplicates: IMG_5197(1).JPG vs IMG_51971.JPG
+            # 2. Spaces: IMG_6970 Copy.JPG vs IMG_6970_Copy.JPG
+            import re
+            def normalize_filename(filename):
+                """Normalize Google Drive filename to match browser upload format."""
+                # Step 1: Convert (N) suffix to N (Google Drive duplicate handling)
+                match = re.match(r'^(.+)\((\d+)\)(\.[^.]+)$', filename)
+                if match:
+                    base, num, ext = match.groups()
+                    filename = f"{base}{num}{ext}"
+                # Step 2: Apply secure_filename (spaces -> underscores, etc.)
+                return secure_filename(filename)
+
             filtered_photos = face_results.get('filtered_photos', [])
             uploaded_set = set(uploaded_filenames)
-            matched_photos = [p for p in filtered_photos if p.get('filename') in uploaded_set]
+            saved_filenames_set = {p.get('filename') for p in filtered_photos}
+
+            # Create mapping: normalized_name -> actual_uploaded_name
+            normalized_to_uploaded = {normalize_filename(f): f for f in uploaded_filenames}
+
+            matched_photos = []
+            for p in filtered_photos:
+                saved_filename = p.get('filename')
+                actual_filename = None
+
+                # Try direct match first
+                if saved_filename in uploaded_set:
+                    actual_filename = saved_filename
+                # Try normalized match (saved name matches normalized uploaded name)
+                elif saved_filename in normalized_to_uploaded:
+                    actual_filename = normalized_to_uploaded[saved_filename]
+
+                if actual_filename:
+                    # Use actual uploaded filename for the photo entry
+                    photo_entry = p.copy()
+                    photo_entry['filename'] = actual_filename
+                    photo_entry['thumbnail'] = get_thumbnail_name(actual_filename)
+                    matched_photos.append(photo_entry)
+
+            # Debug: Find unmatched photos
+            matched_saved = {p.get('filename') for p in filtered_photos if p.get('filename') in uploaded_set or p.get('filename') in normalized_to_uploaded}
+            unmatched_from_saved = [p.get('filename') for p in filtered_photos if p.get('filename') not in matched_saved]
+            matched_uploaded = {m['filename'] for m in matched_photos}
+            unmatched_from_uploaded = [f for f in uploaded_filenames if f not in matched_uploaded]
 
             print(f"[Job {job_id}] Matched {len(matched_photos)} of {len(filtered_photos)} photos")
+            print(f"[Job {job_id}] DEBUG: {len(unmatched_from_saved)} saved photos NOT found in uploaded files:")
+            for fname in unmatched_from_saved[:20]:  # Show first 20
+                print(f"  [SAVED NOT IN UPLOAD] '{fname}'")
+            if len(unmatched_from_saved) > 20:
+                print(f"  ... and {len(unmatched_from_saved) - 20} more")
+
+            print(f"[Job {job_id}] DEBUG: {len(unmatched_from_uploaded)} uploaded files NOT found in saved data:")
+            for fname in unmatched_from_uploaded[:20]:  # Show first 20
+                print(f"  [UPLOAD NOT IN SAVED] '{fname}'")
+            if len(unmatched_from_uploaded) > 20:
+                print(f"  ... and {len(unmatched_from_uploaded) - 20} more")
 
             # Create review data
             review_data = {
@@ -2677,6 +2771,11 @@ def confirm_selection(job_id):
     if len(confirmed_photos) == 0:
         return jsonify({'error': 'At least one photo must be selected'}), 400
 
+    # Get embedding model selection (default to siglip)
+    embedding_model = data.get('embedding_model', 'siglip')
+    if embedding_model not in ['siglip', 'clip']:
+        embedding_model = 'siglip'
+
     # Get processing parameters from job
     quality_mode = job.get('quality_mode', 'balanced')
     similarity_threshold = job.get('similarity_threshold', 0.92)
@@ -2717,7 +2816,7 @@ def confirm_selection(job_id):
     # Start phase 2 processing
     thread = threading.Thread(
         target=process_photos_quality_selection,
-        args=(job_id, upload_dir, quality_mode, similarity_threshold, confirmed_photos, face_data_cache)
+        args=(job_id, upload_dir, quality_mode, similarity_threshold, confirmed_photos, face_data_cache, embedding_model)
     )
     thread.start()
 

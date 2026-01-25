@@ -44,15 +44,26 @@ def is_supabase_available() -> bool:
 
 
 def _get_dataset_registry(client) -> List[str]:
-    """Get the list of dataset names from the registry file."""
+    """
+    Get the list of dataset names from the registry file.
+    Returns None if there's an error reading (to prevent accidental overwrite).
+    Returns [] only if file doesn't exist yet.
+    """
     try:
         storage = client.storage.from_(BUCKET_NAME)
         response = storage.download("_registry.json")
         registry = json.loads(response.decode('utf-8'))
         return registry.get('datasets', [])
-    except Exception:
-        # Registry doesn't exist yet
-        return []
+    except Exception as e:
+        error_str = str(e).lower()
+        # Only return empty if file doesn't exist (not for other errors)
+        if 'not found' in error_str or '404' in error_str or 'does not exist' in error_str:
+            print("[Supabase] Registry file doesn't exist yet, starting fresh")
+            return []
+        else:
+            # For other errors, return None to prevent accidental overwrite
+            print(f"[Supabase] ERROR reading registry: {e}")
+            return None
 
 
 def _update_dataset_registry(client, dataset_name: str, action: str = 'add'):
@@ -62,6 +73,11 @@ def _update_dataset_registry(client, dataset_name: str, action: str = 'add'):
 
         # Get current registry
         datasets = _get_dataset_registry(client)
+
+        # If we couldn't read the registry (error, not "not found"), don't overwrite
+        if datasets is None:
+            print(f"[Supabase] Skipping registry update - couldn't read existing registry safely")
+            return
 
         if action == 'add' and dataset_name not in datasets:
             datasets.append(dataset_name)
@@ -219,6 +235,11 @@ def list_datasets_from_supabase() -> List[Dict[str, Any]]:
         # Get dataset names from registry
         dataset_names = _get_dataset_registry(client)
         print(f"[Supabase] Registry contains: {dataset_names}")
+
+        # If registry read failed (None), return empty to be safe
+        if dataset_names is None:
+            print("[Supabase] Could not read registry, returning empty list")
+            return []
 
         # If registry is empty, try to find existing datasets by checking known names
         # This handles the case where datasets were saved before registry was implemented

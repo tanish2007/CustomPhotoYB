@@ -835,6 +835,106 @@
                 padding: 40px;
                 color: #666;
             }
+
+            /* Model Selection */
+            .model-selection {
+                background: #f8f9fa;
+                border-radius: 12px;
+                padding: 20px;
+                margin-bottom: 25px;
+                border: 1px solid #e0e0e0;
+            }
+
+            .model-selection-title {
+                font-size: 14px;
+                font-weight: 600;
+                color: #374151;
+                margin-bottom: 12px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+
+            .model-options {
+                display: flex;
+                gap: 15px;
+                flex-wrap: wrap;
+            }
+
+            .model-option {
+                flex: 1;
+                min-width: 200px;
+                background: white;
+                border: 2px solid #e0e0e0;
+                border-radius: 10px;
+                padding: 15px;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+
+            .model-option:hover {
+                border-color: #667eea;
+            }
+
+            .model-option.selected {
+                border-color: #667eea;
+                background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+            }
+
+            .model-option input[type="radio"] {
+                display: none;
+            }
+
+            .model-option-header {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin-bottom: 8px;
+            }
+
+            .model-radio {
+                width: 20px;
+                height: 20px;
+                border: 2px solid #ccc;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                flex-shrink: 0;
+            }
+
+            .model-option.selected .model-radio {
+                border-color: #667eea;
+            }
+
+            .model-option.selected .model-radio::after {
+                content: '';
+                width: 10px;
+                height: 10px;
+                background: #667eea;
+                border-radius: 50%;
+            }
+
+            .model-name {
+                font-weight: 600;
+                color: #333;
+            }
+
+            .model-badge {
+                font-size: 10px;
+                padding: 2px 8px;
+                border-radius: 10px;
+                background: #4CAF50;
+                color: white;
+                font-weight: 500;
+            }
+
+            .model-description {
+                font-size: 13px;
+                color: #666;
+                line-height: 1.4;
+                margin-left: 30px;
+            }
         </style>
     </head>
     <body>
@@ -982,6 +1082,37 @@
             <div class="proceed-section">
                 <h3>Ready to Continue?</h3>
                 <p>Click below to run quality selection on <strong id="final-count">0</strong> selected photos</p>
+
+                <!-- Model Selection -->
+                <div class="model-selection">
+                    <div class="model-selection-title">
+                        Clustering Model
+                    </div>
+                    <div class="model-options">
+                        <label class="model-option selected" onclick="selectModel('siglip')">
+                            <input type="radio" name="embedding_model" value="siglip" checked>
+                            <div class="model-option-header">
+                                <div class="model-radio"></div>
+                                <span class="model-name">SigLIP</span>
+                                <span class="model-badge">Recommended</span>
+                            </div>
+                            <div class="model-description">
+                                Better for fine-grained visual understanding. 768-dim embeddings.
+                            </div>
+                        </label>
+                        <label class="model-option" onclick="selectModel('clip')">
+                            <input type="radio" name="embedding_model" value="clip">
+                            <div class="model-option-header">
+                                <div class="model-radio"></div>
+                                <span class="model-name">CLIP</span>
+                            </div>
+                            <div class="model-description">
+                                Original OpenAI model. 512-dim embeddings. Good general-purpose.
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
                 <div class="proceed-buttons">
                     <button class="btn btn-success btn-lg" onclick="proceedToSelection()">
                         Continue to Quality Selection &rarr;
@@ -1036,6 +1167,19 @@
             let photoSelections = {};
             let currentModalPhoto = null;
             let unmatchedLoaded = false;
+            let selectedModel = 'siglip';  // Default model
+
+            function selectModel(model) {
+                selectedModel = model;
+                // Update UI
+                document.querySelectorAll('.model-option').forEach(opt => {
+                    opt.classList.remove('selected');
+                    if (opt.querySelector(`input[value="${model}"]`)) {
+                        opt.classList.add('selected');
+                        opt.querySelector('input').checked = true;
+                    }
+                });
+            }
 
             async function loadFilteredPhotos() {
                 showLoading('Loading filtered photos...');
@@ -1267,13 +1411,17 @@
                     return;
                 }
 
-                showLoading('Running quality-based selection...');
+                const modelName = selectedModel === 'clip' ? 'CLIP' : 'SigLIP';
+                showLoading(`Running quality-based selection with ${modelName}...`);
 
                 try {
                     const response = await fetch(`/confirm_selection/${jobId}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ selected_photos: selectedPhotos })
+                        body: JSON.stringify({
+                            selected_photos: selectedPhotos,
+                            embedding_model: selectedModel
+                        })
                     });
 
                     const data = await response.json();
