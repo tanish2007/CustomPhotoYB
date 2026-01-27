@@ -725,6 +725,163 @@ class MonthlyPhotoSelector:
 
         return clusters
 
+    def merge_similar_clusters(self, clusters: Dict[int, List[Dict]],
+                                embeddings: Dict[str, np.ndarray],
+                                similarity_threshold: float = 0.80) -> Dict[int, List[Dict]]:
+        """
+        Merge clusters that have photos too similar to each other.
+
+        If any photo in Cluster A is >similarity_threshold similar to any photo
+        in Cluster B, merge them into one cluster.
+
+        Args:
+            clusters: Dict mapping cluster_id to list of photos
+            embeddings: Dict mapping filename to embedding
+            similarity_threshold: Merge if similarity > this (default 0.80)
+
+        Returns:
+            Merged clusters dict
+        """
+        if len(clusters) <= 1:
+            return clusters
+
+        cluster_ids = list(clusters.keys())
+        n_clusters = len(cluster_ids)
+
+        # Build a union-find structure for merging
+        parent = {cid: cid for cid in cluster_ids}
+
+        def find(x):
+            if parent[x] != x:
+                parent[x] = find(parent[x])
+            return parent[x]
+
+        def union(x, y):
+            px, py = find(x), find(y)
+            if px != py:
+                parent[px] = py
+
+        # Check all pairs of clusters for similarity
+        merge_count = 0
+        for i in range(n_clusters):
+            for j in range(i + 1, n_clusters):
+                cid_a = cluster_ids[i]
+                cid_b = cluster_ids[j]
+
+                # Skip if already in same merged group
+                if find(cid_a) == find(cid_b):
+                    continue
+
+                # Check if any photo in cluster A is too similar to any in cluster B
+                should_merge = False
+                for photo_a in clusters[cid_a]:
+                    emb_a = embeddings.get(photo_a['filename'])
+                    if emb_a is None:
+                        continue
+                    for photo_b in clusters[cid_b]:
+                        emb_b = embeddings.get(photo_b['filename'])
+                        if emb_b is None:
+                            continue
+                        sim = self.compute_similarity(emb_a, emb_b)
+                        if sim > similarity_threshold:
+                            should_merge = True
+                            break
+                    if should_merge:
+                        break
+
+                if should_merge:
+                    union(cid_a, cid_b)
+                    merge_count += 1
+
+        if merge_count == 0:
+            print(f"  No clusters needed merging (threshold: {similarity_threshold:.0%})")
+            return clusters
+
+        # Build merged clusters
+        merged = {}
+        for cid in cluster_ids:
+            root = find(cid)
+            if root not in merged:
+                merged[root] = []
+            merged[root].extend(clusters[cid])
+
+        print(f"  Merged {merge_count} cluster pairs: {n_clusters} -> {len(merged)} clusters")
+
+        return merged
+
+    def merge_same_event_clusters(self, clusters: Dict[int, List[Dict]]) -> Dict[int, List[Dict]]:
+        """
+        Merge clusters that share the same event_id.
+
+        If any photo in Cluster A has the same event_id as any photo in Cluster B,
+        merge them into one cluster. This ensures photos from the same event
+        appear together in the cluster view.
+
+        Note: original_cluster_id should already be saved before this function is called.
+
+        Args:
+            clusters: Dict mapping cluster_id to list of photos
+
+        Returns:
+            Merged clusters dict
+        """
+        if len(clusters) <= 1:
+            return clusters
+
+        cluster_ids = list(clusters.keys())
+        n_clusters = len(cluster_ids)
+
+        # Build a union-find structure for merging
+        parent = {cid: cid for cid in cluster_ids}
+
+        def find(x):
+            if parent[x] != x:
+                parent[x] = find(parent[x])
+            return parent[x]
+
+        def union(x, y):
+            px, py = find(x), find(y)
+            if px != py:
+                parent[px] = py
+
+        # Build event_id -> cluster_ids mapping
+        event_to_clusters = {}
+        for cid, photos in clusters.items():
+            for photo in photos:
+                event_id = photo.get('event_id', -1)
+                if event_id != -1:
+                    if event_id not in event_to_clusters:
+                        event_to_clusters[event_id] = set()
+                    event_to_clusters[event_id].add(cid)
+
+        # Merge clusters that share the same event_id
+        merge_count = 0
+        for event_id, cluster_set in event_to_clusters.items():
+            cluster_list = list(cluster_set)
+            if len(cluster_list) > 1:
+                # Merge all clusters in this event
+                first_cid = cluster_list[0]
+                for other_cid in cluster_list[1:]:
+                    if find(first_cid) != find(other_cid):
+                        union(first_cid, other_cid)
+                        merge_count += 1
+
+        if merge_count == 0:
+            print(f"  No clusters needed event-based merging")
+            return clusters
+
+        # Build merged clusters
+        merged = {}
+        for cid in cluster_ids:
+            root = find(cid)
+            if root not in merged:
+                merged[root] = []
+            merged[root].extend(clusters[cid])
+
+        print(f"  Event-merged {merge_count} cluster pairs: {n_clusters} -> {len(merged)} clusters")
+
+        return merged
+
     def select_hybrid_hdbscan(self, photos: List[Dict],
                               embeddings: Dict[str, np.ndarray],
                               target: int,
@@ -764,7 +921,22 @@ class MonthlyPhotoSelector:
 
         # Step 1: Cluster photos with HDBSCAN (for cluster_id info in results)
         clusters = self.cluster_photos_hdbscan(photos, embeddings)
-        print(f"  Found {len(clusters)} clusters")
+
+        # Step 1.1: Save original_cluster_id BEFORE any merging
+        # This preserves the true HDBSCAN cluster assignment for display
+        for cid, cluster_photos in clusters.items():
+            for photo in cluster_photos:
+                photo['original_cluster_id'] = int(cid)
+
+        # Step 1.5: Merge clusters that have photos too similar to each other
+        # This prevents "too similar" rejections during selection by ensuring
+        # similar photos are in the same cluster from the start
+        clusters = self.merge_similar_clusters(clusters, embeddings, similarity_threshold=0.80)
+
+        # Step 1.6: Merge clusters that share the same event_id
+        # This ensures photos from the same event appear together in cluster view
+        clusters = self.merge_same_event_clusters(clusters)
+        print(f"  Final cluster count after event merge: {len(clusters)}")
 
         # Step 2: Flatten all photos with cluster_id and sort by score
         all_photos = []

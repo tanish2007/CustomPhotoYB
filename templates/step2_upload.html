@@ -739,25 +739,8 @@
             <h2>Upload Your Event Photos</h2>
             <p>Upload all photos from the event - we'll find the best ones of your child</p>
 
-            <!-- Upload Method Tabs -->
-            <div class="upload-tabs">
-                <button class="upload-tab active" onclick="switchUploadMethod('browser')">Browser Upload</button>
-                <button class="upload-tab" id="drive-tab" onclick="switchUploadMethod('drive')" style="display: none;">Google Drive</button>
-            </div>
-
-            <!-- Browser Upload Area -->
-            <div class="upload-area" id="drop-zone">
-                <div class="upload-icon">&#128194;</div>
-                <h3>Drag & Drop Photos Here</h3>
-                <p>Supports JPG, PNG, HEIC, WebP (recommended for &lt;500 photos)</p>
-                <input type="file" id="file-input" multiple accept=".jpg,.jpeg,.png,.heic,.heif,.webp" hidden>
-                <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
-                    Select Files
-                </button>
-            </div>
-
             <!-- Google Drive Input -->
-            <div class="folder-input-area hidden" id="drive-input-area">
+            <div class="folder-input-area" id="drive-input-area">
                 <div class="upload-icon" style="font-size: 48px;">&#9729;</div>
                 <h3>Import from Google Drive</h3>
                 <p>Paste a Google Drive folder URL (folder must be shared with the service account)</p>
@@ -854,51 +837,9 @@
 
     <script>
         const hasReferences = {{ reference_count }} > 0;
-        let selectedFiles = [];
         let qualityMode = 'balanced';
         let jobId = null;
-        let uploadMethod = 'browser';  // 'browser', 'folder', or 'drive'
-        let driveAvailable = false;
         let driveFolderVerified = false;
-
-        // Check if Google Drive is available on page load
-        async function checkDriveAvailability() {
-            try {
-                const response = await fetch('/check_drive_status');
-                const data = await response.json();
-                driveAvailable = data.available;
-                if (driveAvailable) {
-                    document.getElementById('drive-tab').style.display = '';
-                }
-            } catch (e) {
-                console.log('Drive check failed:', e);
-            }
-        }
-        checkDriveAvailability();
-
-        // Upload method switcher
-        function switchUploadMethod(method) {
-            uploadMethod = method;
-            document.querySelectorAll('.upload-tab').forEach(tab => {
-                const tabText = tab.textContent.toLowerCase();
-                const isActive = (method === 'browser' && tabText.includes('browser')) ||
-                                 (method === 'drive' && tabText.includes('drive'));
-                tab.classList.toggle('active', isActive);
-            });
-            document.getElementById('drop-zone').classList.toggle('hidden', method !== 'browser');
-            document.getElementById('drive-input-area').classList.toggle('hidden', method !== 'drive');
-
-            // Update file preview visibility based on method
-            if (method === 'drive') {
-                document.getElementById('file-preview').classList.add('hidden');
-                updateDrivePreview();
-            } else {
-                // Browser mode - show preview if files selected
-                if (selectedFiles.length > 0) {
-                    document.getElementById('file-preview').classList.remove('hidden');
-                }
-            }
-        }
 
         function updateDrivePreview() {
             const driveUrl = document.getElementById('drive-folder-url').value.trim();
@@ -957,78 +898,12 @@
             }
         }
 
-        // Folder path input handler
-        document.getElementById('folder-path').addEventListener('input', updateFolderPreview);
-
         // Drive URL input handler - reset verification on change
         document.getElementById('drive-folder-url').addEventListener('input', function() {
             driveFolderVerified = false;
             document.getElementById('drive-preview').style.display = 'none';
             document.getElementById('file-preview').classList.add('hidden');
         });
-
-        // File input handler
-        document.getElementById('file-input').addEventListener('change', function(e) {
-            handleFiles(e.target.files);
-        });
-
-        // Drag and drop
-        const dropZone = document.getElementById('drop-zone');
-
-        dropZone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            dropZone.classList.add('drag-over');
-        });
-
-        dropZone.addEventListener('dragleave', () => {
-            dropZone.classList.remove('drag-over');
-        });
-
-        dropZone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            dropZone.classList.remove('drag-over');
-            handleFiles(e.dataTransfer.files);
-        });
-
-        function handleFiles(files) {
-            selectedFiles = Array.from(files);
-            updatePreview();
-        }
-
-        function updatePreview() {
-            const preview = document.getElementById('file-preview');
-            const grid = document.getElementById('preview-grid');
-            const countEl = document.getElementById('file-count');
-
-            if (selectedFiles.length === 0) {
-                preview.classList.add('hidden');
-                return;
-            }
-
-            preview.classList.remove('hidden');
-            countEl.textContent = `${selectedFiles.length} photos`;
-            grid.innerHTML = '';
-
-            const maxPreview = 11;
-            const filesToShow = selectedFiles.slice(0, maxPreview);
-
-            filesToShow.forEach(file => {
-                const div = document.createElement('div');
-                div.className = 'preview-item';
-
-                const img = document.createElement('img');
-                img.src = URL.createObjectURL(file);
-                div.appendChild(img);
-                grid.appendChild(div);
-            });
-
-            if (selectedFiles.length > maxPreview) {
-                const more = document.createElement('div');
-                more.className = 'preview-item more-indicator';
-                more.textContent = `+${selectedFiles.length - maxPreview}`;
-                grid.appendChild(more);
-            }
-        }
 
         function setQualityMode(mode) {
             qualityMode = mode;
@@ -1046,140 +921,48 @@
             // Show processing overlay
             document.getElementById('processing-overlay').classList.remove('hidden');
 
-            if (uploadMethod === 'drive') {
-                // Google Drive import mode
-                const driveUrl = document.getElementById('drive-folder-url').value.trim();
-                if (!driveUrl) {
-                    alert('Please enter a Google Drive folder URL');
+            // Google Drive import mode
+            const driveUrl = document.getElementById('drive-folder-url').value.trim();
+            if (!driveUrl) {
+                alert('Please enter a Google Drive folder URL');
+                document.getElementById('processing-overlay').classList.add('hidden');
+                return;
+            }
+
+            if (!driveFolderVerified) {
+                alert('Please click "Preview Folder" first to verify access');
+                document.getElementById('processing-overlay').classList.add('hidden');
+                return;
+            }
+
+            document.getElementById('processing-message').textContent = 'Connecting to Google Drive...';
+
+            try {
+                const response = await fetch('/import_from_drive', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        folder_url: driveUrl,
+                        quality_mode: qualityMode,
+                        similarity_threshold: parseFloat(document.getElementById('similarity').value)
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    alert('Error: ' + data.error);
                     document.getElementById('processing-overlay').classList.add('hidden');
                     return;
                 }
 
-                if (!driveFolderVerified) {
-                    alert('Please click "Preview Folder" first to verify access');
-                    document.getElementById('processing-overlay').classList.add('hidden');
-                    return;
-                }
+                jobId = data.job_id;
+                pollStatus();
 
-                document.getElementById('processing-message').textContent = 'Connecting to Google Drive...';
-
-                try {
-                    const response = await fetch('/import_from_drive', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            folder_url: driveUrl,
-                            quality_mode: qualityMode,
-                            similarity_threshold: parseFloat(document.getElementById('similarity').value)
-                        })
-                    });
-
-                    const data = await response.json();
-
-                    if (data.error) {
-                        alert('Error: ' + data.error);
-                        document.getElementById('processing-overlay').classList.add('hidden');
-                        return;
-                    }
-
-                    jobId = data.job_id;
-                    pollStatus();
-
-                } catch (error) {
-                    console.error('Error:', error);
-                    alert('Failed to import from Google Drive. Please try again.');
-                    document.getElementById('processing-overlay').classList.add('hidden');
-                }
-
-            } else {
-                // Browser upload mode
-                if (selectedFiles.length === 0) {
-                    alert('Please select photos first');
-                    document.getElementById('processing-overlay').classList.add('hidden');
-                    return;
-                }
-
-                // Upload files in chunks to avoid 413 errors
-                const CHUNK_SIZE = 50; // Upload 50 files at a time
-                const totalFiles = selectedFiles.length;
-                let uploadedCount = 0;
-
-                document.getElementById('processing-message').textContent = `Uploading photos (0/${totalFiles})...`;
-
-                try {
-                    // First, start a new upload session
-                    const initResponse = await fetch('/upload_init', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            total_files: totalFiles,
-                            quality_mode: qualityMode,
-                            similarity_threshold: parseFloat(document.getElementById('similarity').value)
-                        })
-                    });
-
-                    const initData = await initResponse.json();
-                    if (initData.error) {
-                        alert('Error: ' + initData.error);
-                        document.getElementById('processing-overlay').classList.add('hidden');
-                        return;
-                    }
-
-                    const sessionId = initData.session_id;
-
-                    // Upload files in chunks
-                    for (let i = 0; i < totalFiles; i += CHUNK_SIZE) {
-                        const chunk = selectedFiles.slice(i, i + CHUNK_SIZE);
-                        const formData = new FormData();
-
-                        chunk.forEach(file => formData.append('files', file));
-                        formData.append('session_id', sessionId);
-                        formData.append('chunk_index', Math.floor(i / CHUNK_SIZE));
-
-                        const chunkResponse = await fetch('/upload_chunk', {
-                            method: 'POST',
-                            body: formData
-                        });
-
-                        const chunkData = await chunkResponse.json();
-                        if (chunkData.error) {
-                            alert('Error uploading chunk: ' + chunkData.error);
-                            document.getElementById('processing-overlay').classList.add('hidden');
-                            return;
-                        }
-
-                        uploadedCount += chunk.length;
-                        const percent = Math.round((uploadedCount / totalFiles) * 30); // Upload is 30% of progress
-                        document.getElementById('processing-message').textContent = `Uploading photos (${uploadedCount}/${totalFiles})...`;
-                        document.getElementById('progress-fill').style.width = `${percent}%`;
-                        document.getElementById('progress-percent').textContent = percent;
-                    }
-
-                    // All chunks uploaded, start processing
-                    document.getElementById('processing-message').textContent = 'Starting AI processing...';
-
-                    const processResponse = await fetch('/upload_complete', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ session_id: sessionId })
-                    });
-
-                    const processData = await processResponse.json();
-
-                    if (processData.error) {
-                        alert('Error: ' + processData.error);
-                        document.getElementById('processing-overlay').classList.add('hidden');
-                        return;
-                    }
-
-                    jobId = processData.job_id;
-                    pollStatus();
-
-                } catch (error) {
-                    console.error('Upload error:', error);
-                    alert('Upload failed. Please try again.');
-                    document.getElementById('processing-overlay').classList.add('hidden');
-                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Failed to import from Google Drive. Please try again.');
+                document.getElementById('processing-overlay').classList.add('hidden');
             }
         }
 

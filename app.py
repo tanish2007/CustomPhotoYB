@@ -821,30 +821,102 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
 
         print(f"[Job {job_id}] Target per month: {target_per_month}")
 
-        # Step 1: Generate embeddings for confirmed photos
+        # Step 1: Generate embeddings for confirmed photos (with caching)
         processing_jobs[job_id]['progress'] = 10
-        processing_jobs[job_id]['message'] = f'Analyzing photos with {model_display_name}...'
+        processing_jobs[job_id]['message'] = f'Checking embedding cache...'
 
-        print(f"[Job {job_id}] Generating {model_display_name} embeddings for {len(confirmed_photos)} photos...")
+        print(f"[Job {job_id}] Processing {len(confirmed_photos)} photos for {model_display_name} embeddings...")
 
-        embedder = Embedder()
-        embeddings = {}
+        # Import cache functions
+        from supabase_storage import (
+            compute_file_hash,
+            get_cached_embeddings_batch,
+            save_embeddings_batch,
+            is_supabase_available
+        )
 
+        # Step 1a: Compute hashes for all files
+        file_hashes = {}  # filename -> hash
+        hash_to_filename = {}  # hash -> filename (for reverse lookup)
+
+        print(f"[Job {job_id}] Computing file hashes...")
         for i, filename in enumerate(confirmed_photos):
             filepath = os.path.join(upload_dir, filename)
             if os.path.exists(filepath):
-                img = embedder.load_image(filepath)
-                if img is not None:
-                    embedding = embedder.get_embedding(img)
-                    if embedding is not None:
-                        embeddings[filename] = embedding
-                    img.close()
+                file_hash = compute_file_hash(filepath)
+                if file_hash:
+                    file_hashes[filename] = file_hash
+                    hash_to_filename[file_hash] = filename
 
-            # Update progress (10-30%)
-            progress = 10 + int((i / len(confirmed_photos)) * 20)
-            processing_jobs[job_id]['progress'] = progress
+            # Update progress (10-15%)
+            if i % 100 == 0:
+                progress = 10 + int((i / len(confirmed_photos)) * 5)
+                processing_jobs[job_id]['progress'] = progress
 
-        print(f"[Job {job_id}] Embeddings generated: {len(embeddings)}")
+        print(f"[Job {job_id}] Computed {len(file_hashes)} hashes")
+
+        # Step 1b: Check cache for existing embeddings
+        embeddings = {}
+        cached_count = 0
+        uncached_filenames = []
+
+        if is_supabase_available() and file_hashes:
+            processing_jobs[job_id]['message'] = f'Checking embedding cache...'
+            all_hashes = list(file_hashes.values())
+
+            # Query cache in batches (Supabase has query limits)
+            cached_embeddings = {}
+            batch_size = 500
+            for i in range(0, len(all_hashes), batch_size):
+                batch_hashes = all_hashes[i:i + batch_size]
+                batch_result = get_cached_embeddings_batch(batch_hashes, embedding_model)
+                cached_embeddings.update(batch_result)
+
+            # Map cached embeddings back to filenames
+            for filename, file_hash in file_hashes.items():
+                if file_hash in cached_embeddings:
+                    embeddings[filename] = cached_embeddings[file_hash]
+                    cached_count += 1
+                else:
+                    uncached_filenames.append(filename)
+
+            print(f"[Job {job_id}] Cache hit: {cached_count}/{len(file_hashes)} embeddings")
+        else:
+            uncached_filenames = list(file_hashes.keys())
+            print(f"[Job {job_id}] Cache not available, computing all embeddings")
+
+        # Step 1c: Compute embeddings for uncached files only
+        newly_computed = {}
+        if uncached_filenames:
+            processing_jobs[job_id]['message'] = f'Analyzing {len(uncached_filenames)} photos with {model_display_name}...'
+            print(f"[Job {job_id}] Computing {model_display_name} embeddings for {len(uncached_filenames)} uncached photos...")
+
+            embedder = Embedder()
+
+            for i, filename in enumerate(uncached_filenames):
+                filepath = os.path.join(upload_dir, filename)
+                if os.path.exists(filepath):
+                    img = embedder.load_image(filepath)
+                    if img is not None:
+                        embedding = embedder.get_embedding(img)
+                        if embedding is not None:
+                            embeddings[filename] = embedding
+                            newly_computed[filename] = embedding
+                        img.close()
+
+                # Update progress (15-30%)
+                progress = 15 + int((i / len(uncached_filenames)) * 15)
+                processing_jobs[job_id]['progress'] = progress
+
+            print(f"[Job {job_id}] Computed {len(newly_computed)} new embeddings")
+
+            # Step 1d: Save newly computed embeddings to cache
+            if newly_computed and is_supabase_available():
+                processing_jobs[job_id]['message'] = 'Saving embeddings to cache...'
+                saved = save_embeddings_batch(newly_computed, file_hashes, embedding_model)
+                print(f"[Job {job_id}] Saved {saved} embeddings to cache")
+
+        print(f"[Job {job_id}] Total embeddings: {len(embeddings)} (cached: {cached_count}, computed: {len(newly_computed)})")
 
         # Step 2: Initialize monthly selector
         processing_jobs[job_id]['progress'] = 35
@@ -1056,6 +1128,7 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
                 'category': photo.get('category', 'unknown'),
                 'num_faces': int(photo.get('num_faces', 0)),
                 'cluster_id': cid,
+                'original_cluster_id': photo.get('original_cluster_id', cid),
                 'cluster_total': cluster_total,
                 'cluster_selected': cluster_selected,
                 'event_id': photo.get('event_id', -1),
@@ -1114,6 +1187,7 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
                 'month': month,
                 'category': photo.get('category', 'unknown'),
                 'cluster_id': cid,
+                'original_cluster_id': photo.get('original_cluster_id', cid),
                 'cluster_total': cluster_total,
                 'cluster_selected': cluster_selected,
                 'event_id': photo.get('event_id', -1),
@@ -1125,6 +1199,14 @@ def process_photos_quality_selection(job_id, upload_dir, quality_mode, similarit
             })
 
         results['rejection_breakdown'] = dict(rejection_counts)
+
+        # Add face filtering count to breakdown (photos where target face was not detected)
+        face_filter_data = results['summary'].get('face_filtering', {})
+        total_uploaded = face_filter_data.get('total_photos', 0)
+        after_face_filter = face_filter_data.get('after_face_filter', 0)
+        face_filtered_out = total_uploaded - after_face_filter
+        if face_filtered_out > 0:
+            results['rejection_breakdown']['Face not detected'] = face_filtered_out
 
         # Sort by score
         results['selected'].sort(key=lambda x: x['score'], reverse=True)

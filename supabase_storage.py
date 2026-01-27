@@ -1,10 +1,14 @@
 """
 Supabase Storage Integration for Photo Selection App
 Handles persistent storage of dataset metadata (not photos) in Supabase.
+Also provides global embedding cache for CLIP/SigLIP embeddings.
 """
 
 import os
 import json
+import base64
+import hashlib
+import numpy as np
 from typing import Optional, List, Dict, Any
 
 # Supabase credentials
@@ -343,3 +347,187 @@ def check_dataset_exists_in_supabase(dataset_name: str) -> bool:
         return len(files) > 0
     except:
         return False
+
+
+# =============================================================================
+# GLOBAL EMBEDDING CACHE
+# =============================================================================
+# Stores CLIP/SigLIP embeddings in Supabase database table for reuse.
+# Table schema (create in Supabase Dashboard):
+#
+# CREATE TABLE image_embeddings (
+#     id BIGSERIAL PRIMARY KEY,
+#     image_hash TEXT NOT NULL,
+#     embedding_model TEXT NOT NULL,
+#     embedding TEXT NOT NULL,
+#     embedding_dim INTEGER NOT NULL,
+#     created_at TIMESTAMPTZ DEFAULT NOW(),
+#     UNIQUE(image_hash, embedding_model)
+# );
+# CREATE INDEX idx_image_embeddings_hash_model ON image_embeddings(image_hash, embedding_model);
+# =============================================================================
+
+EMBEDDING_TABLE = 'image_embeddings'
+
+
+def compute_file_hash(filepath: str) -> Optional[str]:
+    """
+    Compute MD5 hash of a file.
+
+    Args:
+        filepath: Path to the image file
+
+    Returns:
+        MD5 hash string or None if error
+    """
+    try:
+        md5 = hashlib.md5()
+        with open(filepath, 'rb') as f:
+            # Read in chunks for memory efficiency
+            for chunk in iter(lambda: f.read(8192), b''):
+                md5.update(chunk)
+        return md5.hexdigest()
+    except Exception as e:
+        print(f"[EmbeddingCache] Error hashing {filepath}: {e}")
+        return None
+
+
+def _embedding_to_base64(embedding: np.ndarray) -> str:
+    """Convert numpy embedding to base64 string for storage."""
+    return base64.b64encode(embedding.astype(np.float32).tobytes()).decode('utf-8')
+
+
+def _base64_to_embedding(b64_str: str, dim: int) -> np.ndarray:
+    """Convert base64 string back to numpy embedding."""
+    bytes_data = base64.b64decode(b64_str)
+    return np.frombuffer(bytes_data, dtype=np.float32).reshape(dim)
+
+
+def get_cached_embeddings_batch(
+    image_hashes: List[str],
+    embedding_model: str
+) -> Dict[str, np.ndarray]:
+    """
+    Get cached embeddings for multiple images in one query.
+
+    Args:
+        image_hashes: List of MD5 hashes to look up
+        embedding_model: Model name ('siglip' or 'clip')
+
+    Returns:
+        Dict mapping hash -> embedding for found entries
+    """
+    client = get_supabase_client()
+    if not client or not image_hashes:
+        return {}
+
+    try:
+        # Query all hashes at once
+        response = client.table(EMBEDDING_TABLE).select(
+            'image_hash, embedding, embedding_dim'
+        ).in_('image_hash', image_hashes).eq('embedding_model', embedding_model).execute()
+
+        result = {}
+        for row in response.data:
+            embedding = _base64_to_embedding(row['embedding'], row['embedding_dim'])
+            result[row['image_hash']] = embedding
+
+        print(f"[EmbeddingCache] Found {len(result)}/{len(image_hashes)} cached embeddings for {embedding_model}")
+        return result
+
+    except Exception as e:
+        print(f"[EmbeddingCache] Error fetching batch: {e}")
+        return {}
+
+
+def save_embeddings_batch(
+    embeddings: Dict[str, np.ndarray],
+    image_hashes: Dict[str, str],
+    embedding_model: str
+) -> int:
+    """
+    Save multiple embeddings to cache.
+
+    Args:
+        embeddings: Dict mapping filename -> embedding
+        image_hashes: Dict mapping filename -> hash
+        embedding_model: Model name ('siglip' or 'clip')
+
+    Returns:
+        Number of embeddings saved
+    """
+    client = get_supabase_client()
+    if not client or not embeddings:
+        return 0
+
+    try:
+        # Prepare batch insert data
+        rows = []
+        for filename, embedding in embeddings.items():
+            img_hash = image_hashes.get(filename)
+            if img_hash and embedding is not None:
+                rows.append({
+                    'image_hash': img_hash,
+                    'embedding_model': embedding_model,
+                    'embedding': _embedding_to_base64(embedding),
+                    'embedding_dim': len(embedding)
+                })
+
+        if not rows:
+            return 0
+
+        # Insert with upsert (ignore conflicts)
+        # Batch in chunks of 100 to avoid request size limits
+        saved = 0
+        chunk_size = 100
+        for i in range(0, len(rows), chunk_size):
+            chunk = rows[i:i + chunk_size]
+            try:
+                client.table(EMBEDDING_TABLE).upsert(
+                    chunk,
+                    on_conflict='image_hash,embedding_model'
+                ).execute()
+                saved += len(chunk)
+            except Exception as e:
+                print(f"[EmbeddingCache] Error saving chunk {i//chunk_size}: {e}")
+
+        print(f"[EmbeddingCache] Saved {saved} new embeddings for {embedding_model}")
+        return saved
+
+    except Exception as e:
+        print(f"[EmbeddingCache] Error saving batch: {e}")
+        return 0
+
+
+def get_embedding_cache_stats() -> Dict[str, Any]:
+    """Get statistics about the embedding cache."""
+    client = get_supabase_client()
+    if not client:
+        return {'available': False}
+
+    try:
+        # Count by model
+        response = client.table(EMBEDDING_TABLE).select(
+            'embedding_model',
+            count='exact'
+        ).execute()
+
+        # Get counts per model
+        siglip_count = client.table(EMBEDDING_TABLE).select(
+            'id', count='exact'
+        ).eq('embedding_model', 'siglip').execute()
+
+        clip_count = client.table(EMBEDDING_TABLE).select(
+            'id', count='exact'
+        ).eq('embedding_model', 'clip').execute()
+
+        return {
+            'available': True,
+            'siglip_count': siglip_count.count or 0,
+            'clip_count': clip_count.count or 0,
+            'total': (siglip_count.count or 0) + (clip_count.count or 0)
+        }
+
+    except Exception as e:
+        print(f"[EmbeddingCache] Error getting stats: {e}")
+        return {'available': False, 'error': str(e)}
